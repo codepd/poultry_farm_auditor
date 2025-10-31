@@ -5,6 +5,7 @@ Parse poultry ledger PDF statements (like 'PRADEEP PF JULY 25.pdf') and export a
 Updated:
  - formats exported date fields as '2-Jun-25'
  - grand_total = Eggs - Feed - Medicine - Payments - TDS + Discount
+ - FIXED: Now correctly categorizes items based on item name, not header type
 """
 
 import sys
@@ -134,30 +135,39 @@ def format_date_obj(dt):
     except Exception:
         return str(dt)
 
+def classify_item_by_name(item_name):
+    """Classify an item based on its name into: egg, feed, medicine, or other."""
+    if not item_name or item_name == 'NONE':
+        return 'other'
+    n = item_name.upper()
+    
+    # Check eggs first (highest priority)
+    for e in EGG_KEYWORDS:
+        if e in n:
+            return 'egg'
+    
+    # Check feed
+    for f in FEED_KEYWORDS:
+        if f in n:
+            return 'feed'
+    
+    # Check medicines
+    for m in MEDICINES_KNOWN:
+        if m in n:
+            return 'medicine'
+    
+    # Additional medicine keywords
+    if any(x in n for x in ['GRIT','D3','FRA','VET','CTC','NECRO','TOX','ROVIMIX']):
+        return 'medicine'
+    
+    return 'other'
+
 def parse_pdf_statement(pdf_path):
     items = []
     payments = []
     tds_entries = []
     discounts = []
     
-    def infer_txn_type_from_name(item_name):
-        """Return a txn_type hint based on item_name keywords or None."""
-        if not item_name:
-            return None
-        n = item_name.upper()
-        for e in EGG_KEYWORDS:
-            if e in n:
-                return 'egg_purchase'
-        for f in FEED_KEYWORDS:
-            if f in n:
-                return 'feed_sale'
-        for m in MEDICINES_KNOWN:
-            if m in n:
-                return 'medicine'
-        # loose heuristics
-        if any(x in n for x in ['GRIT','D3','FRA','VET','CTC','NECRO','TOX','ROVIMIX']):
-            return 'medicine'
-        return None
     with pdfplumber.open(pdf_path) as pdf:
         all_lines = []
         for p in pdf.pages:
@@ -185,6 +195,8 @@ def parse_pdf_statement(pdf_path):
             tn = re.findall(NUM_RE, header_text)
             if tn:
                 header_amt = clean_number(tn[-1])
+            
+            # Determine header transaction type (for context only)
             txn_type = None
             if "POULTRY EGG" in header_text or "EGG PURCHASE" in header_text:
                 txn_type = "egg_purchase"
@@ -234,10 +246,14 @@ def parse_pdf_statement(pdf_path):
                     })
                 if (' KGS' in nxt.upper()) or (' NOS' in nxt.upper()) or ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()):
                     parsed = parse_item_line(nxt)
-                    if parsed:
+                    if parsed and parsed['item_name']:
+                        # CRITICAL FIX: Always classify based on item name, not header
+                        actual_category = classify_item_by_name(parsed['item_name'])
+                        
                         rec = {
                             'date': parsed_date,
-                            'txn_type': txn_type,
+                            'txn_type': txn_type,  # Keep for reference
+                            'category': actual_category,  # Use actual classification
                             'header_amount': header_amt,
                             'item_name': parsed['item_name'],
                             'qty': parsed['qty'],
@@ -247,13 +263,6 @@ def parse_pdf_statement(pdf_path):
                             'bill_no': last_bill_no,
                             'raw_line': nxt
                         }
-                        # Infer txn_type from the parsed item name and override
-                        # the header txn_type when a clear match exists. This
-                        # fixes cases where headers are noisy (e.g. 'feed_sale')
-                        # but the item is clearly an egg or feed item.
-                        inferred = infer_txn_type_from_name(rec.get('item_name'))
-                        if inferred:
-                            rec['txn_type'] = inferred
                         items.append(rec)
                 else:
                     if 'DISCOUNT' in nxt.upper() or 'DISCOUNT' in header_text:
@@ -282,10 +291,13 @@ def parse_pdf_statement(pdf_path):
                 last_bill_no = m.group(1) or m.group(2) or m.group(3)
             if (' KGS' in up) or (' NOS' in up) or ('/KGS' in up) or ('/NOS' in up):
                 parsed = parse_item_line(line)
-                if parsed:
+                if parsed and parsed['item_name']:
+                    actual_category = classify_item_by_name(parsed['item_name'])
+                    
                     rec = {
                         'date': None,
                         'txn_type': None,
+                        'category': actual_category,
                         'header_amount': None,
                         'item_name': parsed['item_name'],
                         'qty': parsed['qty'],
@@ -295,37 +307,19 @@ def parse_pdf_statement(pdf_path):
                         'bill_no': last_bill_no,
                         'raw_line': line
                     }
-                    inferred = infer_txn_type_from_name(rec.get('item_name'))
-                    if inferred:
-                        rec['txn_type'] = inferred
                     items.append(rec)
             i += 1
 
     df_items = pd.DataFrame(items)
+    
+    # Ensure category column exists
+    if df_items.empty:
+        df_items = pd.DataFrame(columns=['date','txn_type','category','header_amount','item_name','qty','unit','rate','amount','bill_no','raw_line'])
+    
+    # Clean item names
     df_items['item_name'] = df_items.get('item_name', pd.Series()).astype(str).str.strip()
 
-    def classify_row(name):
-        if not name or name == 'NONE':
-            return 'other'
-        n = name.upper()
-        for e in EGG_KEYWORDS:
-            if e in n:
-                return 'egg'
-        for f in FEED_KEYWORDS:
-            if f in n:
-                return 'feed'
-        for m in MEDICINES_KNOWN:
-            if m in n:
-                return 'medicine'
-        if any(x in n for x in ['GRIT','D3','FRA','VET','CTC','NECRO','TOX','ROVIMIX']):
-            return 'medicine'
-        return 'other'
-
-    if not df_items.empty:
-        df_items['category'] = df_items['item_name'].apply(classify_row)
-    else:
-        df_items = pd.DataFrame(columns=['date','txn_type','header_amount','item_name','qty','unit','rate','amount','bill_no','raw_line','category'])
-
+    # Split by category
     eggs_df = df_items[df_items['category']=='egg'].copy()
     feeds_df = df_items[df_items['category']=='feed'].copy()
     meds_df = df_items[df_items['category']=='medicine'].copy()
@@ -362,9 +356,9 @@ def parse_pdf_statement(pdf_path):
     total_tds = float(tds_df['amount'].sum()) if not tds_df.empty else 0.0
     total_discounts = float(discounts_df['amount'].sum()) if not discounts_df.empty else 0.0
 
-    # NEW: grand total per your formula
     # Grand total = Eggs - Feed - Medicine - Payments - TDS + Discount
     grand_total = total_eggs - total_feeds - total_meds - total_payments - total_tds + total_discounts
+    
     summary = {
         'total_eggs': round(total_eggs, 2),
         'total_feeds': round(total_feeds, 2),
@@ -376,8 +370,7 @@ def parse_pdf_statement(pdf_path):
         'grand_total': round(grand_total, 2)
     }
 
-    # Net profit according to requested formula:
-    # net_profit = total_eggs + total_discounts - total_feeds - total_medicine - total_other - total_tds
+    # Net profit = total_eggs + total_discounts - total_feeds - total_medicine - total_other - total_tds
     net_profit = (total_eggs + total_discounts) - (total_feeds + total_meds + total_other + total_tds)
     summary['net_profit'] = round(net_profit, 2)
 
@@ -424,6 +417,12 @@ def main():
         sys.exit(1)
     print("Parsing:", pdf)
     parsed = parse_pdf_statement(pdf)
+    
+    # Print summary for verification
+    print("\n=== SUMMARY ===")
+    for k, v in parsed['summary'].items():
+        print(f"{k}: {v:,.2f}")
+    
     base = os.path.basename(pdf)
     out = os.path.join(os.path.dirname(pdf), f"parsed_{os.path.splitext(base)[0]}.xlsx")
     export_to_excel(parsed, out)
