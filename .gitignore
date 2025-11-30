@@ -1,0 +1,13 @@
+# Ledgers and parsed data
+2025_ledgers/
+2025_parsed_data/
+*.pdf
+*.xlsx
+*.numbers
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
