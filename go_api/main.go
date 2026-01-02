@@ -101,10 +101,14 @@ func main() {
 	protectedRouter.HandleFunc("/analytics/enhanced-monthly-summary", handlers.GetEnhancedMonthlySummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/all-years-summary", handlers.GetAllYearsSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/last-12-months", handlers.GetLast12MonthsSummary).Methods("GET")
+	protectedRouter.HandleFunc("/analytics/monthly-breakdown", handlers.GetMonthlyBreakdown).Methods("GET")
 
 	// Price history routes
 	protectedRouter.HandleFunc("/prices", handlers.GetPriceHistory).Methods("GET")
 	protectedRouter.HandleFunc("/prices", handlers.CreatePriceHistory).Methods("POST")
+	protectedRouter.HandleFunc("/prices/{id}", handlers.UpdatePriceHistory).Methods("PUT")
+	protectedRouter.HandleFunc("/prices/{id}", handlers.DeletePriceHistory).Methods("DELETE")
+	protectedRouter.HandleFunc("/prices/monthly-egg-averages", handlers.GetMonthlyAverageEggPrices).Methods("GET")
 
 	// Sensitive data config routes
 	protectedRouter.HandleFunc("/sensitive-data-config", handlers.GetSensitiveDataConfig).Methods("GET")

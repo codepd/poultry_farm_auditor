@@ -87,3 +87,4 @@ WHERE category = 'FEED'
 GROUP BY tenant_id, EXTRACT(YEAR FROM transaction_date), EXTRACT(MONTH FROM transaction_date)
 ORDER BY year DESC, month DESC, tenant_id;
 
+

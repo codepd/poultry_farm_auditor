@@ -1,0 +1,175 @@
+.monthly-bar-chart {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.chart-header {
+  margin-bottom: 1.5rem;
+}
+
+.chart-header h3 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.chart-subtitle {
+  color: #666;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.chart-wrapper {
+  margin: 1rem 0;
+  cursor: pointer;
+}
+
+.chart-tooltip {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 250px;
+}
+
+.tooltip-header {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #333;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.tooltip-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.tooltip-item.sales .tooltip-value {
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+.tooltip-item.expense .tooltip-value {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.tooltip-item.profit .tooltip-value {
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+.tooltip-item.loss .tooltip-value {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.tooltip-label {
+  color: #666;
+}
+
+.tooltip-value {
+  font-weight: 600;
+}
+
+.tooltip-breakdown {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.tooltip-breakdown div {
+  margin: 0.25rem 0;
+}
+
+.tooltip-note {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #eee;
+  font-size: 0.8rem;
+  color: #999;
+  font-style: italic;
+}
+
+.chart-summary {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #eee;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 200px;
+}
+
+.summary-label {
+  font-size: 0.85rem;
+  color: #666;
+  text-align: center;
+}
+
+.summary-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.summary-value.sales {
+  color: #4CAF50;
+}
+
+.summary-value.expense {
+  color: #f44336;
+}
+
+.summary-value.profit {
+  color: #4CAF50;
+}
+
+.summary-value.loss {
+  color: #f44336;
+}
+
+.chart-loading,
+.chart-error,
+.chart-no-data {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.chart-error {
+  color: #d32f2f;
+  background: #ffebee;
+}
+
+/* Make chart bars more clickable */
+.recharts-bar-rectangle {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.recharts-bar-rectangle:hover {
+  opacity: 0.8;
+}

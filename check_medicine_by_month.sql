@@ -28,3 +28,4 @@ WHERE category = 'MEDICINE'
     AND transaction_type IN ('PURCHASE', 'EXPENSE', 'SALE')
     AND EXTRACT(YEAR FROM transaction_date) = 2025;
 
+

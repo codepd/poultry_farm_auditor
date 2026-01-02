@@ -1,0 +1,546 @@
+{
+	"info": {
+		"_postman_id": "poultry-farm-api-collection",
+		"name": "Poultry Farm Management API",
+		"description": "Complete API collection for Poultry Farm Management System. Uses environment variables for configuration.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.token) {",
+									"        pm.environment.set('jwt_token', jsonData.data.token);",
+									"        console.log('✅ JWT token saved to environment variable');",
+									"    }",
+									"    if (jsonData.data && jsonData.data.user) {",
+									"        if (jsonData.data.user.id) {",
+									"            pm.environment.set('user_id', jsonData.data.user.id.toString());",
+									"        }",
+									"        if (jsonData.data.user.email) {",
+									"            pm.environment.set('user_email', jsonData.data.user.email);",
+									"        }",
+									"    }",
+									"} else {",
+									"    console.log('❌ Login failed:', pm.response.text());",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{user_email}}\",\n    \"password\": \"{{user_password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Transactions",
+			"item": [
+				{
+					"name": "Get All Transactions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"]
+						}
+					}
+				},
+				{
+					"name": "Get Transactions - Filter by Category",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions?category=EGG",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"],
+							"query": [
+								{
+									"key": "category",
+									"value": "EGG"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Transactions - Filter by Category and Type",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions?category=OTHER&transaction_type=EXPENSE",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"],
+							"query": [
+								{
+									"key": "category",
+									"value": "OTHER"
+								},
+								{
+									"key": "transaction_type",
+									"value": "EXPENSE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Transactions - Date Range",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions?start_date=2025-01-01&end_date=2025-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "2025-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2025-12-31"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Transaction by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.id) {",
+									"        pm.environment.set('last_transaction_id', jsonData.data.id.toString());",
+									"        console.log('✅ Transaction ID saved:', jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions/{{last_transaction_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["transactions", "{{last_transaction_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Create Transaction - Egg Sale",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.id) {",
+									"        pm.environment.set('last_transaction_id', jsonData.data.id.toString());",
+									"        console.log('✅ Transaction created with ID:', jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_date\": \"2025-11-15\",\n    \"transaction_type\": \"SALE\",\n    \"category\": \"EGG\",\n    \"item_name\": \"LARGE EGG\",\n    \"quantity\": 1000,\n    \"unit\": \"NOS\",\n    \"rate\": 7.50,\n    \"amount\": 7500.00,\n    \"notes\": \"Test transaction\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"]
+						}
+					}
+				},
+				{
+					"name": "Create Transaction - Feed Purchase",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.id) {",
+									"        pm.environment.set('last_transaction_id', jsonData.data.id.toString());",
+									"        console.log('✅ Transaction created with ID:', jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_date\": \"2025-11-15\",\n    \"transaction_type\": \"PURCHASE\",\n    \"category\": \"FEED\",\n    \"item_name\": \"LAYER MASH\",\n    \"quantity\": 1000,\n    \"unit\": \"KGS\",\n    \"rate\": 45.50,\n    \"amount\": 45500.00,\n    \"notes\": \"Feed purchase\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"]
+						}
+					}
+				},
+				{
+					"name": "Create Transaction - Other Expense",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.id) {",
+									"        pm.environment.set('last_transaction_id', jsonData.data.id.toString());",
+									"        console.log('✅ Transaction created with ID:', jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_date\": \"2025-11-15\",\n    \"transaction_type\": \"EXPENSE\",\n    \"category\": \"OTHER\",\n    \"item_name\": \"Labor Cost\",\n    \"amount\": 5000.00,\n    \"notes\": \"Monthly labor expense\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["transactions"]
+						}
+					}
+				},
+				{
+					"name": "Update Transaction",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 8000.00,\n    \"notes\": \"Updated transaction\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/transactions/{{last_transaction_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["transactions", "{{last_transaction_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Transaction",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/transactions/{{last_transaction_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["transactions", "{{last_transaction_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Analytics",
+			"item": [
+				{
+					"name": "Get Enhanced Monthly Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/analytics/monthly-summary?year=2025&month=11",
+							"host": ["{{base_url}}"],
+							"path": ["analytics", "monthly-summary"],
+							"query": [
+								{
+									"key": "year",
+									"value": "2025"
+								},
+								{
+									"key": "month",
+									"value": "11"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Last 12 Months Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/analytics/last-12-months",
+							"host": ["{{base_url}}"],
+							"path": ["analytics", "last-12-months"]
+						}
+					}
+				},
+				{
+					"name": "Get Yearly Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/analytics/yearly-summary?year=2025",
+							"host": ["{{base_url}}"],
+							"path": ["analytics", "yearly-summary"],
+							"query": [
+								{
+									"key": "year",
+									"value": "2025"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Monthly Breakdown",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/analytics/monthly-breakdown?year=2025&month=11&category=EGG",
+							"host": ["{{base_url}}"],
+							"path": ["analytics", "monthly-breakdown"],
+							"query": [
+								{
+									"key": "year",
+									"value": "2025"
+								},
+								{
+									"key": "month",
+									"value": "11"
+								},
+								{
+									"key": "category",
+									"value": "EGG"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hen Batches",
+			"item": [
+				{
+					"name": "Get Hen Batches",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/hen-batches",
+							"host": ["{{base_url}}"],
+							"path": ["hen-batches"]
+						}
+					}
+				},
+				{
+					"name": "Create Hen Batch",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.id) {",
+									"        pm.environment.set('last_hen_batch_id', jsonData.data.id.toString());",
+									"        console.log('✅ Hen batch created with ID:', jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"batch_name\": \"Batch-001\",\n    \"initial_count\": 1000,\n    \"current_count\": 1000,\n    \"age_weeks\": 20,\n    \"age_days\": 140,\n    \"date_added\": \"2025-01-01\",\n    \"notes\": \"Test batch\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/hen-batches",
+							"host": ["{{base_url}}"],
+							"path": ["hen-batches"]
+						}
+					}
+				},
+				{
+					"name": "Get Hen Batch by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/hen-batches/{{last_hen_batch_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["hen-batches", "{{last_hen_batch_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Hen Batch",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"current_count\": 950,\n    \"notes\": \"Updated batch count\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/hen-batches/{{last_hen_batch_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["hen-batches", "{{last_hen_batch_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Hen Batch",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/hen-batches/{{last_hen_batch_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["hen-batches", "{{last_hen_batch_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Tenants",
+			"item": [
+				{
+					"name": "Get Tenant Items",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/tenants/items?category=EGG",
+							"host": ["{{base_url}}"],
+							"path": ["tenants", "items"],
+							"query": [
+								{
+									"key": "category",
+									"value": "EGG"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Tenant by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/tenants/{{tenant_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["tenants", "{{tenant_id}}"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

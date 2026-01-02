@@ -1,0 +1,48 @@
+.price-line-chart {
+  width: 100%;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.price-chart-tooltip {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tooltip-header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.25rem;
+}
+
+.tooltip-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.tooltip-label {
+  font-weight: 500;
+}
+
+.tooltip-value {
+  font-weight: 600;
+}
+
+.chart-no-data {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+  font-style: italic;
+}
+
+

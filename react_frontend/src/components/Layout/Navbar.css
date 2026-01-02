@@ -1,0 +1,48 @@
+.app-navbar {
+  background: white;
+  border-bottom: 1px solid #eee;
+  padding: 0 2rem;
+}
+
+.nav-list {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 0.5rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  text-decoration: none;
+  color: #666;
+  font-weight: 500;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+
+.nav-link:hover {
+  color: #667eea;
+  background: #f8f9fa;
+}
+
+.nav-link.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  background: #f8f9fa;
+}
+
+.nav-icon {
+  font-size: 1.2rem;
+}
+
+.nav-label {
+  font-size: 0.95rem;
+}
+
+
+
+

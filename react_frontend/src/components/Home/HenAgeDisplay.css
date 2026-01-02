@@ -1,0 +1,116 @@
+.hen-age-display {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.hen-age-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.hen-age-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.total-count {
+  font-size: 1rem;
+  color: #666;
+}
+
+.total-count strong {
+  color: #667eea;
+  font-size: 1.1rem;
+}
+
+.batches-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.batch-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fafafa;
+  transition: box-shadow 0.2s;
+}
+
+.batch-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.batch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.batch-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #333;
+}
+
+.batch-age {
+  background: #667eea;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.batch-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.detail-item .label {
+  color: #666;
+}
+
+.detail-item .value {
+  color: #333;
+  font-weight: 500;
+}
+
+.no-batches {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 1rem;
+  color: #666;
+}
+
+.error {
+  color: #d32f2f;
+}
+
+
+
+

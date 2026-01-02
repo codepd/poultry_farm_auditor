@@ -1,0 +1,157 @@
+.monthly-statistics {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.monthly-statistics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.monthly-statistics h2 {
+  margin: 0;
+  color: #333;
+}
+
+.refresh-btn {
+  padding: 0.5rem 1rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.refresh-btn:hover {
+  background: #5568d3;
+}
+
+.stat-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.edit-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0.25rem 0.5rem;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.edit-btn:hover {
+  opacity: 1;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.stat-card {
+  background: #f9f9f9;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.stat-card.net-profit {
+  border-left-color: #28a745;
+}
+
+.stat-card h3 {
+  margin: 0 0 1rem 0;
+  color: #666;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #333;
+}
+
+.stat-value.clickable {
+  cursor: pointer;
+  transition: color 0.2s, text-decoration 0.2s;
+}
+
+.stat-value.clickable:hover {
+  color: #667eea;
+  text-decoration: underline;
+}
+
+.stat-value.positive {
+  color: #28a745;
+}
+
+.stat-value.negative {
+  color: #dc3545;
+}
+
+.breakdown {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.breakdown-header {
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.breakdown-item {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.breakdown-name {
+  font-weight: 500;
+  min-width: 120px;
+}
+
+.breakdown-value {
+  color: #333;
+}
+
+.breakdown-amount {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.loading,
+.no-data {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.error-message {
+  background: #fee;
+  color: #c33;
+  padding: 1rem;
+  border-radius: 4px;
+  text-align: center;
+}
+
+
