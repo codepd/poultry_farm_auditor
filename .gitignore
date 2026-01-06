@@ -11,3 +11,45 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+python_backend/venv/
+.venv/
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Binary files
+*.dylib
+*.so
+*.dll
+*.exe
+*.dSYM
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
