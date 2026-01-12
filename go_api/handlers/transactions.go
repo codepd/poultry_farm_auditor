@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
@@ -49,6 +50,7 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT id, tenant_id, transaction_date, transaction_type, category,
 		       item_name, quantity, unit, rate, amount, notes,
+		       payment_date, period_month, period_week, period_days,
 		       created_at, updated_at
 		FROM transactions
 		WHERE tenant_id = $1
@@ -116,11 +118,14 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		var txn models.Transaction
 		var itemName, unit, notes sql.NullString
 		var quantity, rate sql.NullFloat64
+		var paymentDate, periodMonth sql.NullTime
+		var periodWeek, periodDays sql.NullInt64
 
 		err := rows.Scan(
 			&txn.ID, &txn.TenantID, &txn.TransactionDate, &txn.TransactionType,
 			&txn.Category, &itemName, &quantity, &unit, &rate, &txn.Amount,
-			&notes, &txn.CreatedAt, &txn.UpdatedAt,
+			&notes, &paymentDate, &periodMonth, &periodWeek, &periodDays,
+			&txn.CreatedAt, &txn.UpdatedAt,
 		)
 		if err != nil {
 			continue
@@ -146,6 +151,20 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		if notes.Valid {
 			txn.Notes = notes
+		}
+		if paymentDate.Valid {
+			txn.PaymentDate = &paymentDate.Time
+		}
+		if periodMonth.Valid {
+			txn.PeriodMonth = &periodMonth.Time
+		}
+		if periodWeek.Valid {
+			week := int(periodWeek.Int64)
+			txn.PeriodWeek = &week
+		}
+		if periodDays.Valid {
+			days := int(periodDays.Int64)
+			txn.PeriodDays = &days
 		}
 
 		// Filter sensitive data based on permissions
@@ -203,17 +222,21 @@ func GetTransaction(w http.ResponseWriter, r *http.Request) {
 	var txn models.Transaction
 	var itemName, unit, notes sql.NullString
 	var quantity, rate sql.NullFloat64
+	var paymentDate, periodMonth sql.NullTime
+	var periodWeek, periodDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
 		SELECT id, tenant_id, transaction_date, transaction_type, category,
 		       item_name, quantity, unit, rate, amount, notes,
+		       payment_date, period_month, period_week, period_days,
 		       created_at, updated_at
 		FROM transactions
 		WHERE id = $1 AND tenant_id = $2
 	`, transactionID, tenantID).Scan(
 		&txn.ID, &txn.TenantID, &txn.TransactionDate, &txn.TransactionType,
 		&txn.Category, &itemName, &quantity, &unit, &rate, &txn.Amount,
-		&notes, &txn.CreatedAt, &txn.UpdatedAt,
+		&notes, &paymentDate, &periodMonth, &periodWeek, &periodDays,
+		&txn.CreatedAt, &txn.UpdatedAt,
 	)
 
 	// Set default values for columns that don't exist in the database
@@ -246,6 +269,20 @@ func GetTransaction(w http.ResponseWriter, r *http.Request) {
 	if notes.Valid {
 		txn.Notes = notes
 	}
+	if paymentDate.Valid {
+		txn.PaymentDate = &paymentDate.Time
+	}
+	if periodMonth.Valid {
+		txn.PeriodMonth = &periodMonth.Time
+	}
+	if periodWeek.Valid {
+		week := int(periodWeek.Int64)
+		txn.PeriodWeek = &week
+	}
+	if periodDays.Valid {
+		days := int(periodDays.Int64)
+		txn.PeriodDays = &days
+	}
 
 	// Check sensitive data permissions
 	perms, _ := middleware.GetUserPermissions(user.UserID, user.TenantID)
@@ -265,9 +302,52 @@ func GetTransaction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Date is a custom type for JSON dates that can parse "YYYY-MM-DD" format
+type Date time.Time
+
+func (d *Date) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if len(s) > 0 && s[0] == '"' {
+		s = s[1 : len(s)-1] // Remove quotes
+	}
+	if s == "" || s == "null" {
+		return nil
+	}
+	// Try RFC3339 first (includes date-only format "2006-01-02")
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		// Try RFC3339 full format
+		t, err = time.Parse(time.RFC3339, s)
+		if err != nil {
+			return err
+		}
+	}
+	*d = Date(t)
+	return nil
+}
+
+func (d Date) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(d).Format("2006-01-02"))
+}
+
+func (d Date) Time() time.Time {
+	return time.Time(d)
+}
+
+// convertDateToTimezone converts a date to a specific timezone
+// For DATE fields, this interprets the date in the given timezone
+func convertDateToTimezone(t time.Time, location *time.Location) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	// Convert to the target timezone and extract just the date part (midnight)
+	t = t.In(location)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, location)
+}
+
 type TransactionCreateRequest struct {
 	TenantID        uuid.UUID `json:"tenant_id"`
-	TransactionDate time.Time `json:"transaction_date"`
+	TransactionDate Date      `json:"transaction_date"`
 	TransactionType string    `json:"transaction_type"`
 	Category        string    `json:"category"`
 	ItemName        *string   `json:"item_name,omitempty"`
@@ -276,6 +356,27 @@ type TransactionCreateRequest struct {
 	Rate            *float64  `json:"rate,omitempty"`
 	Amount          float64   `json:"amount"`
 	Notes           *string   `json:"notes,omitempty"`
+	PaymentDate     *Date     `json:"payment_date,omitempty"`     // Date when payment was made (defaults to transaction_date)
+	PeriodMonth     *Date     `json:"period_month,omitempty"`     // Month the payment is for (stored as first day of month, defaults to payment_date month)
+	PeriodWeek      *int      `json:"period_week,omitempty"`      // Week number within the payment period (optional)
+	PeriodDays      *int      `json:"period_days,omitempty"`      // Number of days the payment covers (optional)
+}
+
+// Helper function to set default payment_date and period_month
+func setPaymentPeriodDefaults(req *TransactionCreateRequest) {
+	// Set default payment_date to transaction_date if not provided
+	if req.PaymentDate == nil {
+		paymentDate := req.TransactionDate
+		req.PaymentDate = &paymentDate
+	}
+
+	// Set default period_month to payment_date's month if not provided
+	if req.PeriodMonth == nil {
+		// Get first day of the payment_date's month
+		paymentDate := req.PaymentDate.Time()
+		periodMonth := Date(time.Date(paymentDate.Year(), paymentDate.Month(), 1, 0, 0, 0, 0, paymentDate.Location()))
+		req.PeriodMonth = &periodMonth
+	}
 }
 
 // CreateTransaction creates a new transaction
@@ -288,7 +389,8 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	var req TransactionCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		log.Printf("Error decoding transaction request: %v", err)
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 
@@ -324,61 +426,80 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine status based on permissions
-	status := "DRAFT"
-	submittedByUserID := &user.UserID
-	if !perms.CanApproveTransactions {
-		// User must submit for approval
-		status = "SUBMITTED"
-	} else {
-		// User can approve, so auto-approve
-		status = "APPROVED"
-		submittedByUserID = nil
-		approvedByUserID := &user.UserID
-		approvedAt := time.Now()
-
-		// Insert with approval
-		var txnID int
-		err = database.DB.QueryRow(`
-			INSERT INTO transactions (
-				tenant_id, transaction_date, transaction_type, category,
-				item_name, quantity, unit, rate, amount, notes, status,
-				approved_by_user_id, approved_at
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			RETURNING id
-		`, req.TenantID, req.TransactionDate, req.TransactionType, req.Category,
-			req.ItemName, req.Quantity, req.Unit, req.Rate, req.Amount, req.Notes,
-			status, approvedByUserID, approvedAt).Scan(&txnID)
-
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to create transaction")
-			return
-		}
-
-		// Return created transaction
-		vars := mux.Vars(r)
-		vars["id"] = strconv.Itoa(txnID)
-		GetTransaction(w, r)
+	// Validate required fields
+	if req.ItemName == nil || *req.ItemName == "" {
+		respondWithError(w, http.StatusBadRequest, "item_name is required")
 		return
 	}
 
-	// Insert as DRAFT or SUBMITTED
+	// Get tenant timezone and convert dates to tenant timezone
+	tenantLocation, err := utils.GetTenantTimezoneLocation(req.TenantID)
+	if err != nil {
+		log.Printf("Error getting tenant timezone, using UTC: %v", err)
+		tenantLocation = time.UTC
+	}
+
+	// Convert dates to tenant timezone context
+	transactionDateConverted := convertDateToTimezone(req.TransactionDate.Time(), tenantLocation)
+	req.TransactionDate = Date(transactionDateConverted)
+	if req.PaymentDate != nil {
+		paymentDateConverted := convertDateToTimezone(req.PaymentDate.Time(), tenantLocation)
+		paymentDate := Date(paymentDateConverted)
+		req.PaymentDate = &paymentDate
+	}
+	if req.PeriodMonth != nil {
+		periodMonthConverted := convertDateToTimezone(req.PeriodMonth.Time(), tenantLocation)
+		periodMonth := Date(periodMonthConverted)
+		req.PeriodMonth = &periodMonth
+	}
+
+	// Set default payment_date and period_month if not provided
+	setPaymentPeriodDefaults(&req)
+
+	// Insert transaction (status, submitted_by_user_id, approved_by_user_id columns don't exist in DB)
 	var txnID int
+	
+	// Convert Date types to time.Time for database
+	paymentDate := (*time.Time)(nil)
+	if req.PaymentDate != nil {
+		t := req.PaymentDate.Time()
+		paymentDate = &t
+	}
+	periodMonth := (*time.Time)(nil)
+	if req.PeriodMonth != nil {
+		t := req.PeriodMonth.Time()
+		periodMonth = &t
+	}
+	
+	// Handle optional integer fields - use sql.NullInt64 for proper NULL handling
+	var periodWeek sql.NullInt64
+	if req.PeriodWeek != nil {
+		periodWeek = sql.NullInt64{Int64: int64(*req.PeriodWeek), Valid: true}
+	}
+	var periodDays sql.NullInt64
+	if req.PeriodDays != nil {
+		periodDays = sql.NullInt64{Int64: int64(*req.PeriodDays), Valid: true}
+	}
+	
 	err = database.DB.QueryRow(`
 		INSERT INTO transactions (
 			tenant_id, transaction_date, transaction_type, category,
-			item_name, quantity, unit, rate, amount, notes, status,
-			submitted_by_user_id
+			item_name, quantity, unit, rate, amount, notes,
+			payment_date, period_month, period_week, period_days
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id
-	`, req.TenantID, req.TransactionDate, req.TransactionType, req.Category,
+	`, req.TenantID, req.TransactionDate.Time(), req.TransactionType, req.Category,
 		req.ItemName, req.Quantity, req.Unit, req.Rate, req.Amount, req.Notes,
-		status, submittedByUserID).Scan(&txnID)
+		paymentDate, periodMonth, periodWeek, periodDays).Scan(&txnID)
 
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to create transaction")
+		log.Printf("Error creating transaction: %v", err)
+		log.Printf("Request data: TenantID=%v, TransactionDate=%v, TransactionType=%v, Category=%v, Amount=%v", 
+			req.TenantID, req.TransactionDate.Time(), req.TransactionType, req.Category, req.Amount)
+		log.Printf("PaymentDate=%v, PeriodMonth=%v, PeriodWeek=%v, PeriodDays=%v",
+			paymentDate, periodMonth, req.PeriodWeek, req.PeriodDays)
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create transaction: %v", err))
 		return
 	}
 
@@ -440,8 +561,55 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	var req TransactionCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		log.Printf("Error decoding transaction update request: %v", err)
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
 		return
+	}
+
+	// Get tenant timezone and convert dates to tenant timezone
+	tenantLocation, err := utils.GetTenantTimezoneLocation(tenantID)
+	if err != nil {
+		log.Printf("Error getting tenant timezone, using UTC: %v", err)
+		tenantLocation = time.UTC
+	}
+
+	// Convert dates to tenant timezone context
+	transactionDateConverted := convertDateToTimezone(req.TransactionDate.Time(), tenantLocation)
+	req.TransactionDate = Date(transactionDateConverted)
+	if req.PaymentDate != nil {
+		paymentDateConverted := convertDateToTimezone(req.PaymentDate.Time(), tenantLocation)
+		paymentDate := Date(paymentDateConverted)
+		req.PaymentDate = &paymentDate
+	}
+	if req.PeriodMonth != nil {
+		periodMonthConverted := convertDateToTimezone(req.PeriodMonth.Time(), tenantLocation)
+		periodMonth := Date(periodMonthConverted)
+		req.PeriodMonth = &periodMonth
+	}
+
+	// Set default payment_date and period_month if not provided
+	setPaymentPeriodDefaults(&req)
+
+	// Convert Date types to time.Time for database
+	paymentDate := (*time.Time)(nil)
+	if req.PaymentDate != nil {
+		t := req.PaymentDate.Time()
+		paymentDate = &t
+	}
+	periodMonth := (*time.Time)(nil)
+	if req.PeriodMonth != nil {
+		t := req.PeriodMonth.Time()
+		periodMonth = &t
+	}
+
+	// Handle optional integer fields - use sql.NullInt64 for proper NULL handling
+	var periodWeek sql.NullInt64
+	if req.PeriodWeek != nil {
+		periodWeek = sql.NullInt64{Int64: int64(*req.PeriodWeek), Valid: true}
+	}
+	var periodDays sql.NullInt64
+	if req.PeriodDays != nil {
+		periodDays = sql.NullInt64{Int64: int64(*req.PeriodDays), Valid: true}
 	}
 
 	// Update transaction
@@ -449,10 +617,13 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		UPDATE transactions
 		SET transaction_date = $1, transaction_type = $2, category = $3,
 		    item_name = $4, quantity = $5, unit = $6, rate = $7,
-		    amount = $8, notes = $9, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $10 AND tenant_id = $11
-	`, req.TransactionDate, req.TransactionType, req.Category,
+		    amount = $8, notes = $9,
+		    payment_date = $10, period_month = $11, period_week = $12, period_days = $13,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $14 AND tenant_id = $15
+	`, req.TransactionDate.Time(), req.TransactionType, req.Category,
 		req.ItemName, req.Quantity, req.Unit, req.Rate, req.Amount, req.Notes,
+		paymentDate, periodMonth, periodWeek, periodDays,
 		transactionID, tenantID)
 
 	if err != nil {

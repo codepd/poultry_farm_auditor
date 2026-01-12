@@ -46,6 +46,24 @@ export interface TenantInfo {
   is_owner: boolean;
 }
 
+export interface Tenant {
+  id: string;
+  parent_id?: string;
+  name: string;
+  location?: string;
+  country_code: string;
+  currency: string;
+  number_format: string;
+  date_format: string;
+  timezone: string;
+  capacity?: number;
+  age_category_chick_max_weeks?: number;
+  age_category_grower_max_weeks?: number;
+  age_category_prelayer_max_weeks?: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -71,6 +89,10 @@ export interface Transaction {
   rate?: number;
   amount: number;
   notes?: string;
+  payment_date?: string;     // Date when payment was made (defaults to transaction_date)
+  period_month?: string;      // Month the payment is for (first day of month)
+  period_week?: number;       // Week number within the payment period (optional)
+  period_days?: number;       // Number of days the payment covers (optional)
   status: string;
   submitted_by_user_id?: number;
   approved_by_user_id?: number;
@@ -122,6 +144,8 @@ export interface EnhancedMonthlySummary {
   payment_breakdown?: Array<{ type: string; amount: number }>;
   net_profit: number;
   estimated_hens: number;
+  actual_head_count?: number;
+  using_actual_count?: boolean;
   egg_percentage: number;
 }
 
@@ -198,6 +222,10 @@ export const henBatchesAPI = {
     const response = await api.put<{ success: boolean; data: HenBatch }>(`/hen-batches/${id}`, data);
     return response.data.data;
   },
+  deleteHenBatch: async (id: number) => {
+    const response = await api.delete<{ success: boolean; message: string }>(`/hen-batches/${id}`);
+    return response.data;
+  },
   createMortality: async (data: {
     batch_id: number;
     mortality_date: string;
@@ -208,7 +236,22 @@ export const henBatchesAPI = {
     const response = await api.post<{ success: boolean; message: string }>('/hen-batches/mortality', data);
     return response.data;
   },
+  getMortalityHistory: async (batchId: number) => {
+    const response = await api.get<{ success: boolean; data: MortalityRecord[] }>(`/hen-batches/${batchId}/mortality`);
+    return response.data.data;
+  },
 };
+
+export interface MortalityRecord {
+  id: number;
+  batch_id: number;
+  mortality_date: string;
+  count: number;
+  reason?: string;
+  notes?: string;
+  recorded_by_user_id?: number;
+  created_at: string;
+}
 
 export const employeesAPI = {
   getEmployees: async (params?: { is_active?: boolean }) => {
@@ -280,6 +323,25 @@ export const tenantItemsAPI = {
       params.category = category;
     }
     const response = await api.get<{ success: boolean; data: TenantItem[] }>('/tenants/items', { params });
+    return response.data.data;
+  },
+};
+
+export const tenantsAPI = {
+  getTenant: async (id: string) => {
+    const response = await api.get<{ success: boolean; data: Tenant }>(`/tenants/${id}`);
+    return response.data.data;
+  },
+  getTenants: async (tenantId?: string) => {
+    const params: any = {};
+    if (tenantId) {
+      params.tenant_id = tenantId;
+    }
+    const response = await api.get<{ success: boolean; data: Tenant[] }>('/tenants', { params });
+    return response.data.data;
+  },
+  updateTenant: async (id: string, data: Partial<Tenant>) => {
+    const response = await api.put<{ success: boolean; data: Tenant }>(`/tenants/${id}`, data);
     return response.data.data;
   },
 };

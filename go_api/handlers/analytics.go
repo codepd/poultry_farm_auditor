@@ -2,13 +2,14 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
-	"strconv"
-	"time"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
 	"poultry-farm-api/utils"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -116,14 +117,16 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 				AND category = 'MEDICINE' AND transaction_type IN ('PURCHASE', 'SALE')
 		`, tenantID, year, month).Scan(&calcTotalMedicines)
 
-		// Get other expenses
+		// Get other expenses (excluding labor expenses)
 		database.DB.QueryRow(`
 			SELECT COALESCE(SUM(amount), 0)
 			FROM transactions
 			WHERE tenant_id = $1 
 				AND EXTRACT(YEAR FROM transaction_date) = $2
 				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'OTHER' AND transaction_type = 'EXPENSE'
+				AND category = 'OTHER' 
+				AND transaction_type = 'EXPENSE'
+				AND NOT (UPPER(item_name) LIKE '%LABOR%')
 		`, tenantID, year, month).Scan(&calcOtherExpenses)
 
 		// Calculate net profit: Sales - Total Expenses
@@ -150,9 +153,9 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			"success": true,
 			"data": []map[string]interface{}{
 				{
-					"year":                year,
-					"month":               month,
-					"total_eggs_sold":     calcTotalEggsSold,
+					"year":                 year,
+					"month":                month,
+					"total_eggs_sold":      calcTotalEggsSold,
 					"total_egg_price":      calcTotalEggPrice,
 					"feed_purchased_tonne": calcFeedPurchasedTonne,
 					"total_feed_price":     calcTotalFeedPrice,
@@ -254,13 +257,218 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		daysInMonth = 30
 	}
 
-	// Estimate hens: 10,000 hens consume 1 tonne per day
+	// Calculate actual head count based on daily counts for the month
+	// Strategy: For each day in the month, calculate head count by:
+	// 1. Calculate when each batch started laying based on their age at date_added
+	// 2. If hens were already at laying age when added in this month, count them for entire month
+	// 3. For each day, count hens that were at laying age on that day
+	// 4. Start with initial_count and subtract all mortalities up to that day
+	// 5. Sum all daily head counts and divide by days in month to get average
+	var actualHeadCount float64 // Average daily head count (for display and calculation)
+	usingActualCount := false
+
+	// Laying typically starts around 18-20 weeks (126-140 days)
+	const layingAgeDays = 126
+
+	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0) // Start of next month
+
+	// Get all batches that existed at any point during this month or could have been laying
+	// Include batches added before or during this month
+	batchRows, err := database.DB.Query(`
+		SELECT id, date_added, initial_count, age_weeks, age_days
+		FROM hen_batches
+		WHERE tenant_id = $1
+		  AND date_added <= $2
+		ORDER BY date_added
+	`, tenantID, monthEnd)
+
+	if err == nil {
+		defer batchRows.Close()
+
+		// Store batch information including age
+		type BatchInfo struct {
+			ID           int
+			DateAdded    time.Time
+			InitialCount int
+			AgeWeeks     int
+			AgeDays      int
+			LayingStart  time.Time // Calculated date when they started laying
+		}
+		var batches []BatchInfo
+
+		for batchRows.Next() {
+			var batch BatchInfo
+			var ageWeeks, ageDays sql.NullInt64
+			if err := batchRows.Scan(&batch.ID, &batch.DateAdded, &batch.InitialCount, &ageWeeks, &ageDays); err != nil {
+				continue
+			}
+
+			// Get age in total days
+			totalAgeDays := 0
+			if ageWeeks.Valid {
+				batch.AgeWeeks = int(ageWeeks.Int64)
+				totalAgeDays = int(ageWeeks.Int64) * 7
+			}
+			if ageDays.Valid {
+				batch.AgeDays = int(ageDays.Int64)
+				totalAgeDays += int(ageDays.Int64)
+			}
+
+			// Calculate when they actually started laying based on their age at date_added
+			// If they're already at laying age when added, calculate backwards when they started laying
+			// Otherwise, calculate when they will reach laying age in the future
+			if totalAgeDays >= layingAgeDays {
+				// Already at laying age when added, so calculate when they started laying
+				// laying_start = date_added - (current_age - laying_age)
+				daysAgoStartedLaying := totalAgeDays - layingAgeDays
+				batch.LayingStart = batch.DateAdded.AddDate(0, 0, -daysAgoStartedLaying)
+			} else if totalAgeDays > 0 {
+				// Not yet at laying age, calculate when they will reach laying age
+				daysUntilLaying := layingAgeDays - totalAgeDays
+				batch.LayingStart = batch.DateAdded.AddDate(0, 0, daysUntilLaying)
+			} else {
+				// Age is 0 or NULL - assume they will reach laying age in the future
+				// Set laying_start far in the future so they won't be counted until age is updated
+				batch.LayingStart = batch.DateAdded.AddDate(0, 0, layingAgeDays)
+			}
+
+			batches = append(batches, batch)
+		}
+
+		if len(batches) > 0 {
+			// Get all mortality events for these batches up to month end
+			batchIDs := make([]interface{}, len(batches))
+			for i, b := range batches {
+				batchIDs[i] = b.ID
+			}
+
+			// Build query for mortality events
+			placeholders := ""
+			for i := range batchIDs {
+				if i > 0 {
+					placeholders += ","
+				}
+				placeholders += fmt.Sprintf("$%d", i+1)
+			}
+
+			mortalityQuery := fmt.Sprintf(`
+				SELECT batch_id, mortality_date, count
+				FROM hen_mortality
+				WHERE batch_id IN (%s)
+				  AND mortality_date < $%d
+				ORDER BY batch_id, mortality_date
+			`, placeholders, len(batchIDs)+1)
+
+			mortalityArgs := make([]interface{}, len(batchIDs)+1)
+			copy(mortalityArgs, batchIDs)
+			mortalityArgs[len(batchIDs)] = monthEnd
+
+			mortalityRows, err := database.DB.Query(mortalityQuery, mortalityArgs...)
+			if err == nil {
+				defer mortalityRows.Close()
+
+				// Store mortality by batch_id and date
+				// Key: batch_id, Value: map of date -> count
+				mortalityByBatch := make(map[int]map[time.Time]int)
+
+				for mortalityRows.Next() {
+					var batchID int
+					var mortalityDate time.Time
+					var count int
+					if err := mortalityRows.Scan(&batchID, &mortalityDate, &count); err != nil {
+						continue
+					}
+
+					if mortalityByBatch[batchID] == nil {
+						mortalityByBatch[batchID] = make(map[time.Time]int)
+					}
+					mortalityByBatch[batchID][mortalityDate] += count
+				}
+
+				// Calculate total head count days (sum of head count for each day)
+				var totalHeadCountDays float64
+
+				// For each day in the month
+				for day := 0; day < daysInMonth; day++ {
+					currentDay := monthStart.AddDate(0, 0, day)
+					dailyHeadCount := 0
+
+					// For each batch, calculate head count on this day
+					for _, batch := range batches {
+						// Check if batch was added in this month and was already at laying age
+						addedInThisMonth := !batch.DateAdded.Before(monthStart) && batch.DateAdded.Before(monthEnd)
+						wasAlreadyLayingWhenAdded := !batch.LayingStart.After(batch.DateAdded)
+
+						var shouldCount bool
+						var countFromDate time.Time
+
+						if addedInThisMonth && wasAlreadyLayingWhenAdded {
+							// Batch was added in this month and was already at laying age
+							// Count for ENTIRE month (all 31 days), not just from date_added
+							countFromDate = monthStart
+							shouldCount = !currentDay.Before(countFromDate)
+						} else {
+							// Batch was added before this month or will reach laying age in the future
+							// Only count if hens were at laying age on this day
+							if batch.LayingStart.After(currentDay) {
+								continue
+							}
+
+							countFromDate = batch.LayingStart
+							if batch.LayingStart.Before(monthStart) {
+								countFromDate = monthStart
+							}
+
+							shouldCount = !currentDay.Before(countFromDate)
+						}
+
+						if !shouldCount {
+							continue
+						}
+
+						// Start with initial count
+						batchCountOnDay := batch.InitialCount
+
+						// Subtract all mortalities up to and including this day
+						if mortalities, exists := mortalityByBatch[batch.ID]; exists {
+							for mortDate, mortCount := range mortalities {
+								if !mortDate.After(currentDay) {
+									batchCountOnDay -= mortCount
+								}
+							}
+						}
+
+						// Only add if count is positive (avoid negative counts from data issues)
+						if batchCountOnDay > 0 {
+							dailyHeadCount += batchCountOnDay
+						}
+					}
+
+					totalHeadCountDays += float64(dailyHeadCount)
+				}
+
+				// Calculate average daily head count
+				if daysInMonth > 0 {
+					actualHeadCount = totalHeadCountDays / float64(daysInMonth)
+					usingActualCount = actualHeadCount > 0
+				}
+			}
+		}
+	}
+
+	// Use average daily head count for egg percentage calculation (more accurate)
 	estimatedHens := 0.0
-	if feedPurchasedTonne > 0 && daysInMonth > 0 {
+
+	if usingActualCount && actualHeadCount > 0 {
+		// Use average daily head count for egg percentage calculation
+		estimatedHens = actualHeadCount
+	} else if feedPurchasedTonne > 0 && daysInMonth > 0 {
+		// Fallback: Estimate hens: 10,000 hens consume 1 tonne per day
 		estimatedHens = (feedPurchasedTonne / float64(daysInMonth)) * 10000.0
 	}
 
-	// Egg percentage: (Total Eggs / Estimated Hens / daysInMonth) * 100
+	// Egg percentage: (Total Eggs / Head Count / daysInMonth) * 100
 	eggPercentage := 0.0
 	if estimatedHens > 0 && daysInMonth > 0 {
 		dailyEggs := totalEggsSold / float64(daysInMonth)
@@ -520,28 +728,30 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	var paymentBreakdownFinal []map[string]interface{}
 	for _, item := range paymentBreakdownsFromTxns {
 		paymentBreakdownFinal = append(paymentBreakdownFinal, map[string]interface{}{
-			"type":     item.ItemName,
-			"amount":   item.Amount,
+			"type":   item.ItemName,
+			"amount": item.Amount,
 		})
 	}
 
 	summary := map[string]interface{}{
-		"year":                year,
-		"month":               month,
-		"total_eggs_sold":     totalEggsSold,
-		"egg_breakdown":       eggBreakdownFinal,
-		"total_egg_price":     totalEggPrice,
+		"year":                 year,
+		"month":                month,
+		"total_eggs_sold":      totalEggsSold,
+		"egg_breakdown":        eggBreakdownFinal,
+		"total_egg_price":      totalEggPrice,
 		"feed_purchased_tonne": feedPurchasedTonne,
-		"feed_breakdown":      feedBreakdownFinal,
-		"total_feed_price":    totalFeedPrice,
-		"total_medicines":     finalMedicines,
-		"medicine_breakdown":  medicineBreakdownFinal,
-		"other_expenses":      otherExpensesFromTxns,
-		"total_payments":      totalPayments,
-		"payment_breakdown":   paymentBreakdownFinal,
-		"net_profit":          netProfit,
-		"estimated_hens":     estimatedHens,
-		"egg_percentage":      eggPercentage,
+		"feed_breakdown":       feedBreakdownFinal,
+		"total_feed_price":     totalFeedPrice,
+		"total_medicines":      finalMedicines,
+		"medicine_breakdown":   medicineBreakdownFinal,
+		"other_expenses":       otherExpensesFromTxns,
+		"total_payments":       totalPayments,
+		"payment_breakdown":    paymentBreakdownFinal,
+		"net_profit":           netProfit,
+		"estimated_hens":       estimatedHens,
+		"actual_head_count":    actualHeadCount,
+		"using_actual_count":   usingActualCount,
+		"egg_percentage":       eggPercentage,
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -597,19 +807,19 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 		NetProfit    float64 `json:"net_profit"`
 	}
 
-		var summaries []YearlySummary
+	var summaries []YearlySummary
 	currentYear := time.Now().Year()
 	currentMonth := int(time.Now().Month())
-	
+
 	for rows.Next() {
 		var year int
 		rows.Scan(&year)
 
 		var totalSales, totalExpense, netProfit float64
-		
+
 		// Calculate totals from transactions
 		var totalFeed, totalMedicine, totalLabor, totalOther, totalDiscounts, totalTDS float64
-		
+
 		// For current year, only include data up to current month
 		if year == currentYear {
 			// Get egg sales (total sales)
@@ -621,7 +831,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
 					AND category = 'EGG' AND transaction_type = 'SALE'
 			`, tenantID, year, currentMonth).Scan(&totalSales)
-			
+
 			// Get feed purchases (excluding medicine items)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -661,7 +871,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 						UPPER(item_name) LIKE '%TOX%'
 					)
 			`, tenantID, year, currentMonth).Scan(&totalFeed)
-			
+
 			// Get medicine expenses (from MEDICINE category)
 			var medicineFromMedicineCategory float64
 			database.DB.QueryRow(`
@@ -672,7 +882,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
 					AND category = 'MEDICINE' AND transaction_type IN ('PURCHASE', 'SALE')
 			`, tenantID, year, currentMonth).Scan(&medicineFromMedicineCategory)
-			
+
 			// Get medicine expenses that might be incorrectly categorized as FEED
 			var medicineFromFeedCategory float64
 			database.DB.QueryRow(`
@@ -714,14 +924,11 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 						UPPER(item_name) LIKE '%TOX%'
 					)
 			`, tenantID, year, currentMonth).Scan(&medicineFromFeedCategory)
-			
+
 			// Total medicine expense = medicine from MEDICINE category + medicine from FEED category
 			totalMedicine = medicineFromMedicineCategory + medicineFromFeedCategory
-			
-			// Get labor expenses
-			// Monthly uses: category = 'EMPLOYEE' AND transaction_type = 'EXPENSE'
-			// Since EXPENSE is not in enum, this will return 0 in monthly, so match that
-			// But also check PAYMENT as fallback
+
+			// Get labor expenses (OTHER category with labor-related item_name)
 			var laborFromExpense float64
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -729,14 +936,13 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 				WHERE tenant_id = $1 
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
-					AND category = 'EMPLOYEE' AND transaction_type = 'EXPENSE'
+					AND transaction_type = 'EXPENSE'
+					AND category = 'OTHER' 
+					AND UPPER(item_name) LIKE '%LABOR%'
 			`, tenantID, year, currentMonth).Scan(&laborFromExpense)
-			// Since EXPENSE doesn't exist, this will be 0, matching monthly
 			totalLabor = laborFromExpense
-			
-			// Get other expenses (includes electricity and other miscellaneous expenses)
-			// Monthly uses: category = 'OTHER' AND transaction_type = 'EXPENSE'
-			// Since EXPENSE is not in enum, this will return 0 in monthly, so match that
+
+			// Get other expenses (includes electricity and other miscellaneous expenses, excluding labor)
 			var otherFromExpense float64
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -744,11 +950,12 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 				WHERE tenant_id = $1 
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
-					AND category = 'OTHER' AND transaction_type = 'EXPENSE'
+					AND category = 'OTHER' 
+					AND transaction_type = 'EXPENSE'
+					AND NOT (UPPER(item_name) LIKE '%LABOR%')
 			`, tenantID, year, currentMonth).Scan(&otherFromExpense)
-			// Since EXPENSE doesn't exist, this will be 0, matching monthly
 			totalOther = otherFromExpense
-			
+
 			// Get discounts (income - add to sales)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -758,7 +965,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
 					AND transaction_type = 'DISCOUNT'
 			`, tenantID, year, currentMonth).Scan(&totalDiscounts)
-			
+
 			// Get TDS (expense - deduct from profit)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -768,10 +975,10 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(MONTH FROM transaction_date) <= $3
 					AND transaction_type = 'TDS'
 			`, tenantID, year, currentMonth).Scan(&totalTDS)
-			
+
 			// Calculate total sales: egg sales + discounts
 			totalSales = totalSales + totalDiscounts
-			
+
 			// Calculate total expense: feed + medicine + labor + other + TDS
 			totalExpense = totalFeed + totalMedicine + totalLabor + totalOther + totalTDS
 		} else {
@@ -784,7 +991,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND category = 'EGG' AND transaction_type = 'SALE'
 			`, tenantID, year).Scan(&totalSales)
-			
+
 			// Get feed purchases (excluding medicine items)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -823,7 +1030,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 						UPPER(item_name) LIKE '%TOX%'
 					)
 			`, tenantID, year).Scan(&totalFeed)
-			
+
 			// Get medicine expenses (from MEDICINE category)
 			var medicineFromMedicineCategory float64
 			database.DB.QueryRow(`
@@ -833,7 +1040,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND category = 'MEDICINE' AND transaction_type IN ('PURCHASE', 'SALE')
 			`, tenantID, year).Scan(&medicineFromMedicineCategory)
-			
+
 			// Get medicine expenses that might be incorrectly categorized as FEED
 			var medicineFromFeedCategory float64
 			database.DB.QueryRow(`
@@ -874,38 +1081,36 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 						UPPER(item_name) LIKE '%TOX%'
 					)
 			`, tenantID, year).Scan(&medicineFromFeedCategory)
-			
+
 			// Total medicine expense = medicine from MEDICINE category + medicine from FEED category
 			totalMedicine = medicineFromMedicineCategory + medicineFromFeedCategory
-			
-			// Get labor expenses
-			// Monthly uses: category = 'EMPLOYEE' AND transaction_type = 'EXPENSE'
-			// Since EXPENSE is not in enum, this will return 0 in monthly, so match that
+
+			// Get labor expenses (OTHER category with labor-related item_name)
 			var laborFromExpense float64
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
 				FROM transactions
 				WHERE tenant_id = $1 
 					AND EXTRACT(YEAR FROM transaction_date) = $2
-					AND category = 'EMPLOYEE' AND transaction_type = 'EXPENSE'
+					AND transaction_type = 'EXPENSE'
+					AND category = 'OTHER' 
+					AND UPPER(item_name) LIKE '%LABOR%'
 			`, tenantID, year).Scan(&laborFromExpense)
-			// Since EXPENSE doesn't exist, this will be 0, matching monthly
 			totalLabor = laborFromExpense
-			
-			// Get other expenses (includes electricity and other miscellaneous expenses)
-			// Monthly uses: category = 'OTHER' AND transaction_type = 'EXPENSE'
-			// Since EXPENSE is not in enum, this will return 0 in monthly, so match that
+
+			// Get other expenses (includes electricity and other miscellaneous expenses, excluding labor)
 			var otherFromExpense float64
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
 				FROM transactions
 				WHERE tenant_id = $1 
 					AND EXTRACT(YEAR FROM transaction_date) = $2
-					AND category = 'OTHER' AND transaction_type = 'EXPENSE'
+					AND category = 'OTHER' 
+					AND transaction_type = 'EXPENSE'
+					AND NOT (UPPER(item_name) LIKE '%LABOR%')
 			`, tenantID, year).Scan(&otherFromExpense)
-			// Since EXPENSE doesn't exist, this will be 0, matching monthly
 			totalOther = otherFromExpense
-			
+
 			// Get discounts (income - add to sales)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -914,7 +1119,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND transaction_type = 'DISCOUNT'
 			`, tenantID, year).Scan(&totalDiscounts)
-			
+
 			// Get TDS (expense - deduct from profit)
 			database.DB.QueryRow(`
 				SELECT COALESCE(SUM(amount), 0)
@@ -923,14 +1128,14 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND EXTRACT(YEAR FROM transaction_date) = $2
 					AND transaction_type = 'TDS'
 			`, tenantID, year).Scan(&totalTDS)
-			
+
 			// Calculate total sales: egg sales + discounts
 			totalSales = totalSales + totalDiscounts
-			
+
 			// Calculate total expense: feed + medicine + labor + other + TDS
 			totalExpense = totalFeed + totalMedicine + totalLabor + totalOther + totalTDS
 		}
-		
+
 		// Calculate net profit: (Sales + Discounts) - (Feed + Medicine + Labor + Other + TDS)
 		// This should be close to the 12-month monthly net profit
 		netProfit = totalSales - totalExpense
@@ -1092,10 +1297,10 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 
 		// Total medicine expense = medicine from MEDICINE category + medicine from FEED category
 		medicineExpense = medicineFromMedicineCategory + medicineFromFeedCategory
-		
+
 		// Debug logging
 		if medicineExpense > 0 {
-			log.Printf("Total medicine expense for %d-%02d: %.2f (from MEDICINE: %.2f, from FEED: %.2f)", 
+			log.Printf("Total medicine expense for %d-%02d: %.2f (from MEDICINE: %.2f, from FEED: %.2f)",
 				year, month, medicineExpense, medicineFromMedicineCategory, medicineFromFeedCategory)
 		}
 
@@ -1140,24 +1345,28 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 				)
 		`, tenantID, year, month).Scan(&feedExpense)
 
-		// Get labor expense (EMPLOYEE category)
+		// Get labor expense (OTHER category with labor-related item_name)
 		database.DB.QueryRow(`
 			SELECT COALESCE(SUM(amount), 0)
 			FROM transactions
 			WHERE tenant_id = $1 
 				AND EXTRACT(YEAR FROM transaction_date) = $2
 				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'EMPLOYEE' AND transaction_type = 'EXPENSE'
+				AND transaction_type = 'EXPENSE'
+				AND category = 'OTHER' 
+				AND UPPER(item_name) LIKE '%LABOR%'
 		`, tenantID, year, month).Scan(&laborExpense)
 
-		// Get other expenses (OTHER category, EXPENSE type)
+		// Get other expenses (OTHER category, EXPENSE type, excluding labor expenses)
 		database.DB.QueryRow(`
 			SELECT COALESCE(SUM(amount), 0)
 			FROM transactions
 			WHERE tenant_id = $1 
 				AND EXTRACT(YEAR FROM transaction_date) = $2
 				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'OTHER' AND transaction_type = 'EXPENSE'
+				AND category = 'OTHER' 
+				AND transaction_type = 'EXPENSE'
+				AND NOT (UPPER(item_name) LIKE '%LABOR%')
 		`, tenantID, year, month).Scan(&otherExpense)
 
 		// Calculate net profit: Sales - Total Expenses
@@ -1252,7 +1461,7 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 	// Special handling for PAYMENT - it's a transaction_type, not a category
 	var query string
 	var queryArgs []interface{}
-	
+
 	if category == "PAYMENT" {
 		// PAYMENT is a transaction_type, not a category, so we filter differently
 		query = `
@@ -1278,7 +1487,7 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 				AND category = $4
 		`
 		queryArgs = []interface{}{tenantID, year, month, category}
-		
+
 		// Add transaction type filter based on category
 		switch category {
 		case "EGG":
@@ -1335,19 +1544,19 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type TransactionDetail struct {
-		ID              int     `json:"id"`
-		TransactionDate string  `json:"transaction_date"`
-		TransactionType string  `json:"transaction_type"`
-		Category        string  `json:"category"`
-		ItemName        *string `json:"item_name,omitempty"`
+		ID              int      `json:"id"`
+		TransactionDate string   `json:"transaction_date"`
+		TransactionType string   `json:"transaction_type"`
+		Category        string   `json:"category"`
+		ItemName        *string  `json:"item_name,omitempty"`
 		Quantity        *float64 `json:"quantity,omitempty"`
-		Unit            *string `json:"unit,omitempty"`
+		Unit            *string  `json:"unit,omitempty"`
 		Rate            *float64 `json:"rate,omitempty"`
-		Amount          float64 `json:"amount"`
-		Notes           *string `json:"notes,omitempty"`
-		Status          string  `json:"status"`
-		CreatedAt       string  `json:"created_at"`
-		UpdatedAt       string  `json:"updated_at"`
+		Amount          float64  `json:"amount"`
+		Notes           *string  `json:"notes,omitempty"`
+		Status          string   `json:"status"`
+		CreatedAt       string   `json:"created_at"`
+		UpdatedAt       string   `json:"updated_at"`
 	}
 
 	var transactions []TransactionDetail
@@ -1436,9 +1645,9 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 
 	// Convert to array format for frontend
 	type DateGroup struct {
-		Date         string             `json:"date"`
+		Date         string              `json:"date"`
 		Transactions []TransactionDetail `json:"transactions"`
-		TotalAmount  float64            `json:"total_amount"`
+		TotalAmount  float64             `json:"total_amount"`
 	}
 
 	var dateGroups []DateGroup
@@ -1466,14 +1675,13 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"category":       category,
-			"year":           year,
-			"month":          month,
-			"transactions":   transactions,
+			"category":        category,
+			"year":            year,
+			"month":           month,
+			"transactions":    transactions,
 			"grouped_by_date": dateGroups,
-			"average_price":  averagePrice,
-			"total_count":    len(transactions),
+			"average_price":   averagePrice,
+			"total_count":     len(transactions),
 		},
 	})
 }
-

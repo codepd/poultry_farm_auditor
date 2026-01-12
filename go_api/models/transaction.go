@@ -18,6 +18,10 @@ type Transaction struct {
 	Rate              sql.NullFloat64 `json:"rate,omitempty"`
 	Amount            float64         `json:"amount"`
 	Notes             sql.NullString `json:"notes,omitempty"`
+	PaymentDate       *time.Time     `json:"payment_date,omitempty"`       // Date when payment was made (defaults to transaction_date)
+	PeriodMonth       *time.Time     `json:"period_month,omitempty"`       // Month the payment is for (stored as first day of month)
+	PeriodWeek        *int           `json:"period_week,omitempty"`        // Week number within the payment period (optional)
+	PeriodDays        *int           `json:"period_days,omitempty"`        // Number of days the payment covers (optional)
 	Status            string         `json:"status"` // DRAFT, SUBMITTED, APPROVED, REJECTED
 	SubmittedByUserID *int            `json:"submitted_by_user_id,omitempty"`
 	ApprovedByUserID  *int            `json:"approved_by_user_id,omitempty"`
