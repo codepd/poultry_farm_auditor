@@ -24,6 +24,21 @@ FEED_KEYWORDS = ["LAYER MASH", "GROWER MASH", "PRE LAYER MASH", "LAYER MASH BULK
 MEDICINES_KNOWN = ["D3 FORTE", "VETMULIN", "OXYCYCLINE", "TIAZIN", "BPPS FORTE", "CTC", "SHELL GRIT",
                    "ROVIMIX", "CHOLIMARIN", "ZAGROMIN", "G PRO NATURO", "NECROVET", "TOXOL", "FRA C12 DRY", "CALCI ROYAL FS", "CALDLIV FS", "RESPAFEED", "VENTRIM (VITAL)"]
 
+# Map supplement rates to known medicines when PDFs list generic "Poultry Feed Suppliments"
+MEDICINE_PRICE_MAP = {
+    1320.0: "D3 FORTE",
+    1250.0: "VETMULIN",
+    1375.0: "OXYCYCLINE",
+    1150.0: "TIAZIN",
+    850.0: "NECROVET",
+    85.0: "TOXOL",
+    440.0: "G PRO NATURO",
+    10.50: "SHELL GRIT",
+    650.0: "ROVIMIX",
+    100.0: "CHOLIMARIN",
+    260.0: "ZAGROMIN",
+}
+
 NUM_RE = re.compile(r'[\d,]+\.\d+|[\d,]+')
 DATE_HDR_RE = re.compile(r'^(\d{1,2}-[A-Za-z]{3}-\d{2,4})\b')
 
@@ -244,6 +259,10 @@ def classify_item_by_name(item_name):
     if not item_name or item_name == 'NONE':
         return 'other'
     n = item_name.upper()
+
+    # Treat generic supplements as medicine
+    if "POULTRY FEED SUPPLIMENT" in n or "POULTRY FEED SUPPLEMENT" in n:
+        return 'medicine'
     
     # Check eggs first (highest priority)
     for e in EGG_KEYWORDS:
@@ -265,6 +284,25 @@ def classify_item_by_name(item_name):
         return 'medicine'
     
     return 'other'
+
+
+def apply_supplement_price_override(parsed):
+    """Override generic supplement names to known medicines based on rate."""
+    if not parsed:
+        return None
+    name = parsed.get('item_name') or ''
+    if not name:
+        return None
+    if 'SUPPL' not in name.upper():
+        return None
+    rate = parsed.get('rate')
+    if rate is None:
+        return None
+    for price, med in MEDICINE_PRICE_MAP.items():
+        if abs(float(rate) - float(price)) < 0.01:
+            parsed['item_name'] = med.upper()
+            return med
+    return None
 
 
 def determine_category(item_name, unit=None, auto_correct=False):
@@ -401,6 +439,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                 if (' KGS' in nxt.upper()) or (' NOS' in nxt.upper()) or ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()):
                     parsed = parse_item_line(nxt)
                     if parsed and parsed['item_name']:
+                        mapped_medicine = apply_supplement_price_override(parsed)
                         # CRITICAL FIX: Always classify based on item name, not header
                         actual_category, note_correct = determine_category(parsed['item_name'], parsed.get('unit'), auto_correct=auto_correct)
                         notes = []
@@ -423,6 +462,8 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             # header vs actual
                             if txn_type and ((txn_type.startswith('egg') and actual_category != 'egg') or (txn_type.startswith('feed') and actual_category != 'feed')):
                                 notes.append('category_different_than_header')
+                            if mapped_medicine:
+                                notes.append('mapped_supplement_rate_to_medicine')
                             if note_correct:
                                 notes.append(note_correct)
                         
@@ -469,6 +510,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
             if (' KGS' in up) or (' NOS' in up) or ('/KGS' in up) or ('/NOS' in up):
                 parsed = parse_item_line(line)
                 if parsed and parsed['item_name']:
+                    mapped_medicine = apply_supplement_price_override(parsed)
                     actual_category, note_correct = determine_category(parsed['item_name'], parsed.get('unit'), auto_correct=auto_correct)
                     notes = []
                     if add_parsing_notes:
@@ -479,6 +521,8 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             expected = round(parsed.get('qty') * parsed.get('rate'), 2)
                             if parsed.get('amount') is not None and abs(parsed.get('amount') - expected) > 0.1:
                                 notes.append('amount_mismatch_qty_rate')
+                        if mapped_medicine:
+                            notes.append('mapped_supplement_rate_to_medicine')
                         if note_correct:
                             notes.append(note_correct)
                     
