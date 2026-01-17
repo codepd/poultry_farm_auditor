@@ -1,0 +1,9 @@
+aws_region           = "ap-south-1"
+name                 = "poultry-dev"
+frontend_bucket_name = "poultry-dev-frontend-REPLACE_ME"
+frontend_domain_name = "app-dev.mykolipannai.com"
+api_domain_name      = "api-dev.mykolipannai.com"
+
+db_name     = "poultry_farm"
+db_username = "poultry_admin"
+db_password = "REPLACE_ME"
