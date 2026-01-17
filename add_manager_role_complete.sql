@@ -85,3 +85,4 @@ ORDER BY t.name;
 SELECT '✅ MANAGER role setup complete!' as status;
 
 
+

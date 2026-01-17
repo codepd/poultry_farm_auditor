@@ -60,9 +60,7 @@ func GetHenBatches(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if notes.Valid {
-			batch.Notes = notes
-		}
+		batch.Notes = models.NullString{NullString: notes}
 
 		batches = append(batches, batch)
 	}
@@ -131,9 +129,7 @@ func GetHenBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if notes.Valid {
-		batch.Notes = notes
-	}
+	batch.Notes = models.NullString{NullString: notes}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -241,9 +237,11 @@ func UpdateHenBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		AgeWeeks *int    `json:"age_weeks,omitempty"`
-		AgeDays  *int    `json:"age_days,omitempty"`
-		Notes    *string `json:"notes,omitempty"`
+		BatchName    *string `json:"batch_name,omitempty"`
+		CurrentCount *int    `json:"current_count,omitempty"`
+		AgeWeeks     *int    `json:"age_weeks,omitempty"`
+		AgeDays      *int    `json:"age_days,omitempty"`
+		Notes        *string `json:"notes,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -256,6 +254,16 @@ func UpdateHenBatch(w http.ResponseWriter, r *http.Request) {
 	args := []interface{}{}
 	argIndex := 1
 
+	if req.BatchName != nil {
+		updates = append(updates, fmt.Sprintf("batch_name = $%d", argIndex))
+		args = append(args, *req.BatchName)
+		argIndex++
+	}
+	if req.CurrentCount != nil {
+		updates = append(updates, fmt.Sprintf("current_count = $%d", argIndex))
+		args = append(args, *req.CurrentCount)
+		argIndex++
+	}
 	if req.AgeWeeks != nil {
 		updates = append(updates, fmt.Sprintf("age_weeks = $%d", argIndex))
 		args = append(args, *req.AgeWeeks)
@@ -290,6 +298,63 @@ func UpdateHenBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	GetHenBatch(w, r)
+}
+
+// DeleteHenBatch deletes a hen batch
+func DeleteHenBatch(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	batchID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid batch ID")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	// Verify batch belongs to tenant
+	var batchTenantID uuid.UUID
+	err = database.DB.QueryRow(`
+		SELECT tenant_id FROM hen_batches WHERE id = $1
+	`, batchID).Scan(&batchTenantID)
+
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Hen batch not found")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	if batchTenantID != tenantID {
+		respondWithError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	// Delete the batch (cascade will handle related records if configured)
+	_, err = database.DB.Exec(`
+		DELETE FROM hen_batches WHERE id = $1 AND tenant_id = $2
+	`, batchID, tenantID)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to delete hen batch")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Hen batch deleted successfully",
+	})
 }
 
 type MortalityCreateRequest struct {
@@ -373,4 +438,114 @@ func CreateMortality(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+// GetMortalityHistory returns mortality history for a batch
+func GetMortalityHistory(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	batchID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid batch ID")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	// Verify batch belongs to tenant
+	var batchTenantID uuid.UUID
+	err = database.DB.QueryRow(`
+		SELECT tenant_id FROM hen_batches WHERE id = $1
+	`, batchID).Scan(&batchTenantID)
+
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Hen batch not found")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	if batchTenantID != tenantID {
+		respondWithError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	// Get mortality history
+	rows, err := database.DB.Query(`
+		SELECT id, batch_id, mortality_date, count, reason, notes, recorded_by_user_id, created_at
+		FROM hen_mortality
+		WHERE batch_id = $1
+		ORDER BY mortality_date DESC, created_at DESC
+	`, batchID)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch mortality history")
+		return
+	}
+	defer rows.Close()
+
+	var mortalityRecords []map[string]interface{}
+	for rows.Next() {
+		var record struct {
+			ID               int
+			BatchID          int
+			MortalityDate     time.Time
+			Count            int
+			Reason           sql.NullString
+			Notes            sql.NullString
+			RecordedByUserID sql.NullInt64
+			CreatedAt        time.Time
+		}
+
+		err := rows.Scan(
+			&record.ID, &record.BatchID, &record.MortalityDate,
+			&record.Count, &record.Reason, &record.Notes,
+			&record.RecordedByUserID, &record.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		mortalityRecord := map[string]interface{}{
+			"id":             record.ID,
+			"batch_id":       record.BatchID,
+			"mortality_date": record.MortalityDate.Format("2006-01-02"),
+			"count":          record.Count,
+			"created_at":     record.CreatedAt.Format(time.RFC3339),
+		}
+
+		if record.Reason.Valid {
+			mortalityRecord["reason"] = record.Reason.String
+		}
+		if record.Notes.Valid {
+			mortalityRecord["notes"] = record.Notes.String
+		}
+		if record.RecordedByUserID.Valid {
+			mortalityRecord["recorded_by_user_id"] = record.RecordedByUserID.Int64
+		}
+
+		mortalityRecords = append(mortalityRecords, mortalityRecord)
+	}
+
+	if err = rows.Err(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error reading mortality records")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    mortalityRecords,
+	})
+}
+
 

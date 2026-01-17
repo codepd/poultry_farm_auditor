@@ -88,3 +88,4 @@ GROUP BY tenant_id, EXTRACT(YEAR FROM transaction_date), EXTRACT(MONTH FROM tran
 ORDER BY year DESC, month DESC, tenant_id;
 
 
+

@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS tenants (
     currency VARCHAR(3) DEFAULT 'INR',
     number_format VARCHAR(20) DEFAULT 'lakhs', -- 'lakhs' or 'millions'
     date_format VARCHAR(20) DEFAULT 'DD-MM-YYYY',
+    timezone VARCHAR(50) DEFAULT 'Asia/Kolkata', -- IANA timezone identifier
+    age_category_chick_max_weeks INTEGER DEFAULT 6, -- Standard: 6 weeks
+    age_category_grower_max_weeks INTEGER DEFAULT 18, -- Standard: 18 weeks
+    age_category_prelayer_max_weeks INTEGER DEFAULT 22, -- Standard: 22 weeks
     capacity INTEGER, -- Farm capacity in number of hens (e.g., 45000)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

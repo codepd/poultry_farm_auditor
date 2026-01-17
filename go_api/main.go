@@ -73,11 +73,14 @@ func main() {
 	protectedRouter.HandleFunc("/transactions/{id}/reject", handlers.RejectTransaction).Methods("POST")
 
 	// Hen batch routes
+	// IMPORTANT: More specific routes must come before parameterized routes
+	protectedRouter.HandleFunc("/hen-batches/{id}/mortality", handlers.GetMortalityHistory).Methods("GET")
+	protectedRouter.HandleFunc("/hen-batches/mortality", handlers.CreateMortality).Methods("POST")
 	protectedRouter.HandleFunc("/hen-batches", handlers.GetHenBatches).Methods("GET")
 	protectedRouter.HandleFunc("/hen-batches", handlers.CreateHenBatch).Methods("POST")
 	protectedRouter.HandleFunc("/hen-batches/{id}", handlers.GetHenBatch).Methods("GET")
 	protectedRouter.HandleFunc("/hen-batches/{id}", handlers.UpdateHenBatch).Methods("PUT")
-	protectedRouter.HandleFunc("/hen-batches/mortality", handlers.CreateMortality).Methods("POST")
+	protectedRouter.HandleFunc("/hen-batches/{id}", handlers.DeleteHenBatch).Methods("DELETE")
 
 	// Employee routes
 	protectedRouter.HandleFunc("/employees", handlers.GetEmployees).Methods("GET")

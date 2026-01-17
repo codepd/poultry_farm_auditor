@@ -45,10 +45,10 @@ const formatWeekLabel = (date: Date): string => {
 // Helper function to group feed prices by week (Monday-based) and forward-fill missing weeks
 const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
   if (prices.length === 0) return [];
-  
+
   // First, group by item and week
   const itemWeekMap = new Map<string, Map<string, PriceHistory>>();
-  
+
   prices.forEach(price => {
     try {
       const priceDate = new Date(price.price_date);
@@ -59,12 +59,12 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
       const monday = getMondayOfWeek(priceDate);
       const weekKey = monday.toISOString().split('T')[0];
       const itemName = price.item_name;
-      
+
       if (!itemWeekMap.has(itemName)) {
         itemWeekMap.set(itemName, new Map());
       }
       const weekMap = itemWeekMap.get(itemName)!;
-      
+
       // Use the first price found for the week (or update if this date is later)
       if (!weekMap.has(weekKey)) {
         weekMap.set(weekKey, {
@@ -87,31 +87,31 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
       console.warn('Error processing price:', price, e);
     }
   });
-  
+
   // Now forward-fill missing weeks for each item
   const result: PriceHistory[] = [];
-  
+
   itemWeekMap.forEach((weekMap, itemName) => {
     // Get all weeks sorted by date (these are already Monday dates)
     const weeks = Array.from(weekMap.keys()).sort();
-    
+
     if (weeks.length === 0) return;
-    
+
     // Start with all actual week keys we have data for
     const allWeeksSet = new Set<string>(weeks);
-    
+
     // Generate all weeks from first to last (inclusive) to fill gaps
     const firstWeek = new Date(weeks[0]);
     const lastWeek = new Date(weeks[weeks.length - 1]);
-    
+
     // Extend to the last week of the month/year if we have data in that month
     const lastWeekYear = lastWeek.getFullYear();
     const lastWeekMonth = lastWeek.getMonth();
-    
+
     // Calculate the last Monday of the month
     const lastDayOfMonth = new Date(lastWeekYear, lastWeekMonth + 1, 0); // Last day of the month
     const lastMondayOfMonth = getMondayOfWeek(lastDayOfMonth);
-    
+
     // Use the later of: last week with data OR last Monday of the month
     // Compare dates properly using getTime()
     let endWeek: Date;
@@ -120,7 +120,7 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
     } else {
       endWeek = new Date(lastWeek);
     }
-    
+
     // Debug logging (can be removed later)
     if (process.env.NODE_ENV === 'development') {
       console.log('Week generation for', itemName, {
@@ -130,43 +130,43 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
         endWeek: endWeek.toISOString().split('T')[0],
       });
     }
-    
+
     // Start from the first week (already a Monday)
     let currentWeek = new Date(firstWeek);
     // Normalize to midnight for accurate comparison
     currentWeek.setHours(0, 0, 0, 0);
     endWeek.setHours(0, 0, 0, 0);
-    
+
     // Generate all weeks up to and including the end week
     // Continue until we've passed the end week to ensure it's included
     while (currentWeek.getTime() <= endWeek.getTime()) {
       const weekKey = currentWeek.toISOString().split('T')[0];
       allWeeksSet.add(weekKey);
-      
+
       // Move to next week
       const nextWeek = new Date(currentWeek);
       nextWeek.setDate(nextWeek.getDate() + 7);
       nextWeek.setHours(0, 0, 0, 0);
       currentWeek = nextWeek;
     }
-    
+
     // Ensure the end week is definitely included (safety check)
     const endWeekKey = endWeek.toISOString().split('T')[0];
     allWeeksSet.add(endWeekKey);
-    
+
     // Convert to sorted array
     const allWeeks = Array.from(allWeeksSet).sort();
-    
+
     // Debug logging
     if (process.env.NODE_ENV === 'development') {
       console.log('All weeks generated for', itemName, ':', allWeeks);
       console.log('End week key:', endWeekKey);
       console.log('Is end week in allWeeks?', allWeeks.includes(endWeekKey));
     }
-    
+
     // Forward-fill missing weeks
     let lastPrice: PriceHistory | null = null;
-    
+
     allWeeks.forEach(weekKey => {
       if (weekMap.has(weekKey)) {
         // Week has data, use it and update lastPrice
@@ -182,19 +182,19 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
       }
       // If no lastPrice yet, skip until we find the first week with data
     });
-    
+
     // Debug logging for result
     if (process.env.NODE_ENV === 'development') {
       const resultDates = result.filter(p => p.item_name === itemName).map(p => p.price_date).sort();
       console.log('Result dates for', itemName, ':', resultDates);
       console.log('Last result date:', resultDates[resultDates.length - 1]);
     }
-    
+
     // Ensure we have forward-filled all weeks up to the end week
     // This is a safety check to make sure the last week of the month is included
     if (allWeeks.length > 0 && lastPrice !== null) {
       const lastWeekKey = allWeeks[allWeeks.length - 1];
-      const hasLastWeek = result.some(p => 
+      const hasLastWeek = result.some(p =>
         p.item_name === itemName && p.price_date === lastWeekKey
       );
       if (!hasLastWeek && lastPrice !== null) {
@@ -213,11 +213,11 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
         result.push(forwardFilled);
       }
     }
-    
+
     // Final check: ensure the end week (last Monday of month) is included
     if (allWeeks.length > 0 && lastPrice !== null) {
       const endWeekKey = endWeek.toISOString().split('T')[0];
-      const hasEndWeek = result.some(p => 
+      const hasEndWeek = result.some(p =>
         p.item_name === itemName && p.price_date === endWeekKey
       );
       if (!hasEndWeek && lastPrice !== null) {
@@ -233,14 +233,14 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
         });
       }
     }
-    
+
     // Ensure the last week with actual data is always included (safety check)
     if (weeks.length > 0) {
       const lastWeekKey = weeks[weeks.length - 1];
       if (weekMap.has(lastWeekKey)) {
         const lastWeekPrice = weekMap.get(lastWeekKey)!;
         // Check if it's already in result
-        const alreadyIncluded = result.some(p => 
+        const alreadyIncluded = result.some(p =>
           p.item_name === itemName && p.price_date === lastWeekKey
         );
         if (!alreadyIncluded) {
@@ -249,15 +249,15 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
       }
     }
   });
-  
+
   return result;
 };
 
-const PriceLineChart: React.FC<PriceLineChartProps> = ({ 
-  prices, 
-  priceType, 
+const PriceLineChart: React.FC<PriceLineChartProps> = ({
+  prices,
+  priceType,
   selectedYears,
-  onPointClick 
+  onPointClick
 }) => {
   // Filter prices by type
   let filteredPrices = prices.filter(p => p.price_type === priceType);
@@ -277,7 +277,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
 
   // If selectedYears is provided, filter by those years and enable year-on-year comparison
   const isYearOnYear = selectedYears && selectedYears.length > 0;
-  
+
   let processedPrices = filteredPrices;
   if (isYearOnYear) {
     processedPrices = filteredPrices.filter(p => {
@@ -325,12 +325,12 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     // Year-on-year comparison mode
     // Group by item name, then by year, then by month (for EGG) or week (for FEED)
     const itemYearMonthMap = new Map<string, Map<number, Map<number, PriceHistory>>>();
-    
+
     // For FEED, we need to process prices by year first to forward-fill within each year
     if (priceType === 'FEED') {
       // Group prices by year and item, then forward-fill within each year
       const yearItemPrices = new Map<number, Map<string, PriceHistory[]>>();
-      
+
       processedPrices.forEach(price => {
         const year = new Date(price.price_date).getFullYear();
         if (!yearItemPrices.has(year)) {
@@ -342,7 +342,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
         }
         itemMap.get(price.item_name)!.push(price);
       });
-      
+
       // Forward-fill missing weeks for each year-item combination
       yearItemPrices.forEach((itemMap, year) => {
         itemMap.forEach((prices, itemName) => {
@@ -352,7 +352,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
             const startOfYear = new Date(date.getFullYear(), 0, 1);
             const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
             const period = Math.ceil((days + startOfYear.getDay() + 1) / 7);
-            
+
             if (!itemYearMonthMap.has(itemName)) {
               itemYearMonthMap.set(itemName, new Map());
             }
@@ -370,17 +370,17 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
       processedPrices.forEach(price => {
         const year = new Date(price.price_date).getFullYear();
         const period = new Date(price.price_date).getMonth() + 1; // 1-12
-        
+
         if (!itemYearMonthMap.has(price.item_name)) {
           itemYearMonthMap.set(price.item_name, new Map());
         }
         const yearMap = itemYearMonthMap.get(price.item_name)!;
-        
+
         if (!yearMap.has(year)) {
           yearMap.set(year, new Map());
         }
         const periodMap = yearMap.get(year)!;
-        
+
         // For EGG, prefer month-start dates (ending in -01)
         if (price.price_date.endsWith('-01') || !periodMap.has(period)) {
           periodMap.set(period, price);
@@ -389,10 +389,10 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     }
 
     // Get all periods (months for EGG, weeks for FEED)
-    const allPeriods = priceType === 'EGG' 
+    const allPeriods = priceType === 'EGG'
       ? Array.from({ length: 12 }, (_, i) => i + 1) // 1-12 months
       : Array.from({ length: 52 }, (_, i) => i + 1); // 1-52 weeks
-    
+
     // Build chart data - one entry per period
     chartData = allPeriods.map(period => {
       let periodLabel: string;
@@ -407,7 +407,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
         weekMonday.setDate(startOfYear.getDate() + daysToAdd);
         periodLabel = formatWeekLabel(weekMonday);
       }
-      
+
       const dataPoint: any = {
         period,
         periodLabel,
@@ -457,7 +457,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
           const dataKey = `${itemName} (${year})`;
           const color = itemColors[itemIndex % itemColors.length];
           const strokeDasharray = yearLineStyles[yearIndex % yearLineStyles.length];
-          
+
           linesToRender.push({
             key: dataKey,
             dataKey,
@@ -473,12 +473,12 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
   } else {
     // Single year or all data mode
     let finalPrices = processedPrices;
-    
+
     // For FEED, forward-fill missing weeks
     if (priceType === 'FEED') {
       finalPrices = groupFeedPricesByWeek(processedPrices);
     }
-    
+
     const itemsMap = new Map<string, PriceHistory[]>();
     finalPrices.forEach(price => {
       if (!itemsMap.has(price.item_name)) {
@@ -507,7 +507,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     chartData = allDates.map(date => {
       const dateObj = new Date(date);
       let dateLabel: string;
-      
+
       if (priceType === 'EGG') {
         dateLabel = date.endsWith('-01')
           ? dateObj.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
@@ -516,7 +516,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
         // For feed, show week label (Monday date)
         dateLabel = formatWeekLabel(dateObj);
       }
-      
+
       const dataPoint: any = {
         date,
         dateLabel,
@@ -540,17 +540,17 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
       console.log('Chart rendering - last chartData point:', chartData[chartData.length - 1]);
       const hasDec29 = chartData.some(d => d.date === '2025-12-29' || d.dateLabel?.includes('Dec 29'));
       console.log('Chart rendering - has Dec 29 in chartData?', hasDec29);
-      
+
       // Check if last point has any price values
       const lastPoint = chartData[chartData.length - 1];
       if (lastPoint) {
-        const priceKeys = Object.keys(lastPoint).filter(k => 
-          !['date', 'dateLabel', 'period', 'periodLabel'].includes(k) && 
-          !k.endsWith('_id') && 
+        const priceKeys = Object.keys(lastPoint).filter(k =>
+          !['date', 'dateLabel', 'period', 'periodLabel'].includes(k) &&
+          !k.endsWith('_id') &&
           !k.endsWith('_data')
         );
         console.log('Chart rendering - last point price keys:', priceKeys);
-        console.log('Chart rendering - last point price values:', 
+        console.log('Chart rendering - last point price values:',
           priceKeys.reduce((acc, k) => ({ ...acc, [k]: lastPoint[k] }), {})
         );
       }
@@ -617,39 +617,39 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
       // Show all ticks
       return Array.from({ length: dataLength }, (_, i) => i);
     }
-    
+
     // Calculate desired number of ticks
     let desiredTicks = 12;
     if (dataLength <= 24) desiredTicks = dataLength;
     else if (dataLength <= 52) desiredTicks = 12;
     else desiredTicks = 20;
-    
+
     // Always include first and last
     const tickIndices: number[] = [0];
-    
+
     // Calculate step to get approximately desiredTicks
     const step = Math.max(1, Math.floor((dataLength - 1) / (desiredTicks - 1)));
-    
+
     // Add intermediate ticks
     for (let i = step; i < dataLength - 1; i += step) {
       tickIndices.push(i);
     }
-    
+
     // Always include last tick if not already included
     if (tickIndices[tickIndices.length - 1] !== dataLength - 1) {
       tickIndices.push(dataLength - 1);
     }
-    
+
     return tickIndices;
   };
 
   // Get tick indices to show
   const xAxisTickIndices = calculateXAxisTickIndices(chartData.length);
-  
+
   // Get labels that should be shown
   const allLabels = chartData.map(d => isYearOnYear ? d.periodLabel : d.dateLabel);
   const labelsToShow = new Set(xAxisTickIndices.map(i => allLabels[i]));
-  
+
   // Custom tick formatter that only shows labels for specified values
   const customTickFormatter = (value: any): string => {
     // Always show if it's in our set of labels to show
@@ -658,7 +658,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     }
     return ''; // Return empty string to hide this tick
   };
-  
+
   // Debug logging for FEED prices
   if (process.env.NODE_ENV === 'development' && priceType === 'FEED' && !isYearOnYear) {
     console.log('XAxis ticks calculation:', {
@@ -714,12 +714,14 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
               strokeWidth={2}
               strokeDasharray={line.strokeDasharray}
               dot={{ r: 4, fill: line.color }}
-              activeDot={{ r: 6, onClick: (e: any, payload: any) => {
-                const priceData = payload.payload[`${line.dataKey}_data`];
-                if (priceData && onPointClick) {
-                  onPointClick(priceData);
+              activeDot={{
+                r: 6, onClick: (e: any, payload: any) => {
+                  const priceData = payload.payload[`${line.dataKey}_data`];
+                  if (priceData && onPointClick) {
+                    onPointClick(priceData);
+                  }
                 }
-              }}}
+              }}
               connectNulls={false}
             />
           ))}

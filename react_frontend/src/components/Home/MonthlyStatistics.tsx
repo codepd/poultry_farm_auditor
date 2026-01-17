@@ -213,13 +213,28 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
         </div>
 
         <div className="stat-card">
-          <h3>Estimated Hens</h3>
+          <h3>{data.using_actual_count ? 'Actual Head Count' : 'Estimated Hens'}</h3>
           <div className="stat-value">{formatNumber(data.estimated_hens)}</div>
+          {data.using_actual_count && (
+            <div className="stat-note" style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+              Based on hen batches
+            </div>
+          )}
+          {!data.using_actual_count && data.estimated_hens > 0 && (
+            <div className="stat-note" style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+              Estimated from feed consumption
+            </div>
+          )}
         </div>
 
         <div className="stat-card">
           <h3>Egg Percentage</h3>
           <div className="stat-value">{formatNumber(data.egg_percentage)}%</div>
+          {data.using_actual_count && (
+            <div className="stat-note" style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+              Based on actual head count
+            </div>
+          )}
         </div>
 
         <div className="stat-card net-profit">

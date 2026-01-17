@@ -59,19 +59,25 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 	rows, err := database.DB.Query(`
 		WITH RECURSIVE tenant_hierarchy AS (
 			SELECT id, parent_id, name, location, country_code, currency, 
-			       number_format, date_format, capacity, created_at, updated_at, 0 as level
+			       number_format, date_format, timezone, capacity, 
+			       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+			       created_at, updated_at, 0 as level
 			FROM tenants
 			WHERE id = $1
 			
 			UNION ALL
 			
 			SELECT t.id, t.parent_id, t.name, t.location, t.country_code, t.currency,
-			       t.number_format, t.date_format, t.capacity, t.created_at, t.updated_at, th.level + 1
+			       t.number_format, t.date_format, t.timezone, t.capacity,
+			       t.age_category_chick_max_weeks, t.age_category_grower_max_weeks, t.age_category_prelayer_max_weeks,
+			       t.created_at, t.updated_at, th.level + 1
 			FROM tenants t
 			INNER JOIN tenant_hierarchy th ON t.parent_id = th.id
 		)
 		SELECT id, parent_id, name, location, country_code, currency, 
-		       number_format, date_format, capacity, created_at, updated_at
+		       number_format, date_format, timezone, capacity,
+		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       created_at, updated_at
 		FROM tenant_hierarchy
 		ORDER BY level, name
 	`, tenantID)
@@ -87,11 +93,14 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		var tenant models.Tenant
 		var parentID sql.NullString
 		var capacity sql.NullInt64
+		var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
 
 		err := rows.Scan(
 			&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 			&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-			&tenant.DateFormat, &capacity, &tenant.CreatedAt, &tenant.UpdatedAt,
+			&tenant.DateFormat, &tenant.Timezone, &capacity,
+			&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+			&tenant.CreatedAt, &tenant.UpdatedAt,
 		)
 		if err != nil {
 			continue
@@ -104,6 +113,18 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		if capacity.Valid {
 			cap := int(capacity.Int64)
 			tenant.Capacity = &cap
+		}
+		if chickMaxWeeks.Valid {
+			weeks := int(chickMaxWeeks.Int64)
+			tenant.AgeCategoryChickMaxWeeks = &weeks
+		}
+		if growerMaxWeeks.Valid {
+			weeks := int(growerMaxWeeks.Int64)
+			tenant.AgeCategoryGrowerMaxWeeks = &weeks
+		}
+		if preLayerMaxWeeks.Valid {
+			weeks := int(preLayerMaxWeeks.Int64)
+			tenant.AgeCategoryPreLayerMaxWeeks = &weeks
 		}
 
 		tenants = append(tenants, tenant)
@@ -147,16 +168,21 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	var tenant models.Tenant
 	var parentID sql.NullString
 	var capacity sql.NullInt64
+	var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
 
 	err = database.DB.QueryRow(`
 		SELECT id, parent_id, name, location, country_code, currency,
-		       number_format, date_format, capacity, created_at, updated_at
+		       number_format, date_format, timezone, capacity,
+		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       created_at, updated_at
 		FROM tenants
 		WHERE id = $1
 	`, tenantID).Scan(
 		&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-		&tenant.DateFormat, &capacity, &tenant.CreatedAt, &tenant.UpdatedAt,
+		&tenant.DateFormat, &tenant.Timezone, &capacity,
+		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+		&tenant.CreatedAt, &tenant.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -175,6 +201,18 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	if capacity.Valid {
 		cap := int(capacity.Int64)
 		tenant.Capacity = &cap
+	}
+	if chickMaxWeeks.Valid {
+		weeks := int(chickMaxWeeks.Int64)
+		tenant.AgeCategoryChickMaxWeeks = &weeks
+	}
+	if growerMaxWeeks.Valid {
+		weeks := int(growerMaxWeeks.Int64)
+		tenant.AgeCategoryGrowerMaxWeeks = &weeks
+	}
+	if preLayerMaxWeeks.Valid {
+		weeks := int(preLayerMaxWeeks.Int64)
+		tenant.AgeCategoryPreLayerMaxWeeks = &weeks
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -221,15 +259,21 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Set default timezone if not provided
+	timezone := req.Timezone
+	if timezone == "" {
+		timezone = "Asia/Kolkata" // Default to IST
+	}
+
 	// Insert tenant
 	var tenantID uuid.UUID
 	err = database.DB.QueryRow(`
 		INSERT INTO tenants (parent_id, name, location, country_code, currency, 
-		                     number_format, date_format, capacity)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		                     number_format, date_format, timezone, capacity)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`, req.ParentID, req.Name, req.Location, req.CountryCode, req.Currency,
-		req.NumberFormat, req.DateFormat, req.Capacity).Scan(&tenantID)
+		req.NumberFormat, req.DateFormat, timezone, req.Capacity).Scan(&tenantID)
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create tenant")
@@ -240,16 +284,21 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var tenant models.Tenant
 	var parentID sql.NullString
 	var capacity sql.NullInt64
+	var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
 
 	err = database.DB.QueryRow(`
 		SELECT id, parent_id, name, location, country_code, currency,
-		       number_format, date_format, capacity, created_at, updated_at
+		       number_format, date_format, timezone, capacity,
+		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       created_at, updated_at
 		FROM tenants
 		WHERE id = $1
 	`, tenantID).Scan(
 		&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-		&tenant.DateFormat, &capacity, &tenant.CreatedAt, &tenant.UpdatedAt,
+		&tenant.DateFormat, &tenant.Timezone, &capacity,
+		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+		&tenant.CreatedAt, &tenant.UpdatedAt,
 	)
 
 	if parentID.Valid {
@@ -259,6 +308,18 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if capacity.Valid {
 		cap := int(capacity.Int64)
 		tenant.Capacity = &cap
+	}
+	if chickMaxWeeks.Valid {
+		weeks := int(chickMaxWeeks.Int64)
+		tenant.AgeCategoryChickMaxWeeks = &weeks
+	}
+	if growerMaxWeeks.Valid {
+		weeks := int(growerMaxWeeks.Int64)
+		tenant.AgeCategoryGrowerMaxWeeks = &weeks
+	}
+	if preLayerMaxWeeks.Valid {
+		weeks := int(preLayerMaxWeeks.Int64)
+		tenant.AgeCategoryPreLayerMaxWeeks = &weeks
 	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
@@ -330,6 +391,26 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *req.DateFormat)
 		argIndex++
 	}
+	if req.Timezone != nil {
+		updates = append(updates, fmt.Sprintf("timezone = $%d", argIndex))
+		args = append(args, *req.Timezone)
+		argIndex++
+	}
+	if req.AgeCategoryChickMaxWeeks != nil {
+		updates = append(updates, fmt.Sprintf("age_category_chick_max_weeks = $%d", argIndex))
+		args = append(args, *req.AgeCategoryChickMaxWeeks)
+		argIndex++
+	}
+	if req.AgeCategoryGrowerMaxWeeks != nil {
+		updates = append(updates, fmt.Sprintf("age_category_grower_max_weeks = $%d", argIndex))
+		args = append(args, *req.AgeCategoryGrowerMaxWeeks)
+		argIndex++
+	}
+	if req.AgeCategoryPreLayerMaxWeeks != nil {
+		updates = append(updates, fmt.Sprintf("age_category_prelayer_max_weeks = $%d", argIndex))
+		args = append(args, *req.AgeCategoryPreLayerMaxWeeks)
+		argIndex++
+	}
 	if req.Capacity != nil {
 		updates = append(updates, fmt.Sprintf("capacity = $%d", argIndex))
 		args = append(args, *req.Capacity)
@@ -388,9 +469,7 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	fmt.Printf("GetTenantItems: Successfully parsed tenant_id: %s\n", tenantID.String())
-
-	// Check if user has access to this tenant
+	fmt.Printf("GetTenantItems: Successfully parsed tenant_id: %s\n", tenantID.String())	// Check if user has access to this tenant
 	var hasAccess bool
 	err = database.DB.QueryRow(`
 		SELECT EXISTS(
@@ -473,4 +552,3 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 		"data":    items,
 	})
 }
-

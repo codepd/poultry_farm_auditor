@@ -14,7 +14,11 @@ type Tenant struct {
 	Currency    string     `json:"currency"`
 	NumberFormat string    `json:"number_format"`
 	DateFormat  string     `json:"date_format"`
+	Timezone    string     `json:"timezone"`
 	Capacity    *int       `json:"capacity,omitempty"`
+	AgeCategoryChickMaxWeeks *int `json:"age_category_chick_max_weeks,omitempty"`
+	AgeCategoryGrowerMaxWeeks *int `json:"age_category_grower_max_weeks,omitempty"`
+	AgeCategoryPreLayerMaxWeeks *int `json:"age_category_prelayer_max_weeks,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
@@ -32,6 +36,7 @@ type TenantCreateRequest struct {
 	Currency    string     `json:"currency"`
 	NumberFormat string    `json:"number_format"`
 	DateFormat  string     `json:"date_format"`
+	Timezone    string     `json:"timezone"`
 	Capacity    *int       `json:"capacity,omitempty"`
 }
 
@@ -42,7 +47,11 @@ type TenantUpdateRequest struct {
 	Currency    *string    `json:"currency,omitempty"`
 	NumberFormat *string   `json:"number_format,omitempty"`
 	DateFormat  *string    `json:"date_format,omitempty"`
+	Timezone    *string    `json:"timezone,omitempty"`
 	Capacity    *int       `json:"capacity,omitempty"`
+	AgeCategoryChickMaxWeeks *int `json:"age_category_chick_max_weeks,omitempty"`
+	AgeCategoryGrowerMaxWeeks *int `json:"age_category_grower_max_weeks,omitempty"`
+	AgeCategoryPreLayerMaxWeeks *int `json:"age_category_prelayer_max_weeks,omitempty"`
 }
 
 
