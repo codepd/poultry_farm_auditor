@@ -53,3 +53,45 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+math_worksheet*.txt
+
+# Visualizations
+visualizations/**/*.png
+visualizations/**/*.jpg
+visualizations/**/*.jpeg
+visualizations/**/*.gif
+visualizations/**/*.svg
+visualizations/**/*.webp
+visualizations/**/*.mp4
+visualizations/**/*.mov
+visualizations/**/*.avi
+visualizations/**/*.wmv
+visualizations/**/*.flv
+visualizations/**/*.mkv
+
+**/*.xlsx
+**/*.xls
+**/*.csv
+**/*.json
+**/*.yaml
+**/*.yml
+!.github/workflows/**/*.yml
+!.github/workflows/**/*.yaml
+**/*.toml
+**/*.ini
+**/*.conf
+**/*.cfg
+**/*.log
+**/*.txt
+
+go_api/poultry-farm-api
+
+# Terraform (local state/artifacts)
+infra/envs/**/.terraform/
+infra/envs/**/terraform.tfstate
+infra/envs/**/terraform.tfstate.*
+infra/envs/**/terraform.tfvars
+infra/envs/**/tfplan
+
+# Infra diagrams (generated)
+infra/diagrams/

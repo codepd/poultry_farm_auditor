@@ -6,6 +6,10 @@ variable "private_subnet_ids" {
   type = list(string)
 }
 
+variable "allowed_cidr" {
+  type = string
+}
+
 variable "db_name" {
   type = string
 }

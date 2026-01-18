@@ -90,3 +90,13 @@ variable "tags" {
     project     = "poultry"
   }
 }
+
+variable "bastion_instance_type" {
+  type    = string
+  default = "t3.micro"
+}
+
+variable "ecr_repository_name" {
+  type    = string
+  default = "poultry-dev-go-api"
+}

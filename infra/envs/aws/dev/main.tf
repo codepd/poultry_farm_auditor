@@ -27,6 +27,7 @@ module "rds" {
   source             = "../../../modules/aws/rds"
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
+  allowed_cidr       = var.vpc_cidr
   db_name            = var.db_name
   db_username        = var.db_username
   db_password        = var.db_password
@@ -40,4 +41,19 @@ module "s3_cdn" {
   bucket_name = var.frontend_bucket_name
   domain_name = var.frontend_domain_name
   tags        = var.tags
+}
+
+module "bastion" {
+  source           = "../../../modules/aws/bastion"
+  name             = var.name
+  vpc_id           = module.vpc.vpc_id
+  public_subnet_id = module.vpc.public_subnet_ids[0]
+  instance_type    = var.bastion_instance_type
+  tags             = var.tags
+}
+
+module "ecr" {
+  source          = "../../../modules/aws/ecr"
+  repository_name = var.ecr_repository_name
+  tags            = var.tags
 }

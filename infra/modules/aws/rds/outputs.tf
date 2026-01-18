@@ -1,5 +1,5 @@
 output "db_endpoint" {
-  value = null
+  value = aws_db_instance.this.address
 }
 
 output "db_port" {
@@ -7,5 +7,5 @@ output "db_port" {
 }
 
 output "db_security_group_id" {
-  value = null
+  value = aws_security_group.rds.id
 }

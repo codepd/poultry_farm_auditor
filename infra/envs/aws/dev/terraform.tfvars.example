@@ -3,6 +3,7 @@ name                 = "poultry-dev"
 frontend_bucket_name = "poultry-dev-frontend-REPLACE_ME"
 frontend_domain_name = "app-dev.mykolipannai.com"
 api_domain_name      = "api-dev.mykolipannai.com"
+ecr_repository_name  = "poultry-dev-go-api"
 
 db_name     = "poultry_farm"
 db_username = "poultry_admin"
