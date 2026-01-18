@@ -2,6 +2,9 @@
 
 ## Setup
 
+Notes:
+- Changes under `go_api/` trigger the CI build and push to ECR.
+
 1. **Install Dependencies**:
    ```bash
    cd go_api
