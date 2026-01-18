@@ -57,3 +57,11 @@ module "ecr" {
   repository_name = var.ecr_repository_name
   tags            = var.tags
 }
+
+module "github_oidc" {
+  source             = "../../../modules/aws/github_oidc"
+  github_repository  = var.github_repository
+  github_branch      = var.github_branch
+  role_name          = var.github_role_name
+  ecr_repository_arn = module.ecr.repository_arn
+}

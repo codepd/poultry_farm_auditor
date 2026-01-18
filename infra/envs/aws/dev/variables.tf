@@ -100,3 +100,18 @@ variable "ecr_repository_name" {
   type    = string
   default = "poultry-dev-go-api"
 }
+
+variable "github_repository" {
+  type    = string
+  default = "codepd/poultry_farm_auditor"
+}
+
+variable "github_branch" {
+  type    = string
+  default = "main"
+}
+
+variable "github_role_name" {
+  type    = string
+  default = "poultry-dev-github-actions"
+}
