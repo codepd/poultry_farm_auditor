@@ -3,15 +3,17 @@
 ## Setup
 
 Notes:
+
 - Changes under `go_api/` trigger the CI build and push to ECR.
 
 1. **Install Dependencies**:
+
    ```bash
    cd go_api
    go mod tidy
    ```
-
 2. **Set Environment Variables**:
+
    ```bash
    export DB_HOST=localhost
    export DB_PORT=5432
@@ -22,8 +24,8 @@ Notes:
    export JWT_SECRET=your-secret-key-here
    export UPLOAD_PATH=./uploads
    ```
-
 3. **Run Server**:
+
    ```bash
    go run main.go
    ```
@@ -31,15 +33,18 @@ Notes:
 ## API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/login` - User login
 
 ### Tenants
+
 - `GET /api/tenants` - List tenants (with hierarchy)
 - `GET /api/tenants/{id}` - Get tenant
 - `POST /api/tenants` - Create child tenant
 - `PUT /api/tenants/{id}` - Update tenant
 
 ### Transactions
+
 - `GET /api/transactions` - List transactions (with filters)
 - `GET /api/transactions/{id}` - Get transaction
 - `POST /api/transactions` - Create transaction
@@ -50,6 +55,7 @@ Notes:
 - `POST /api/transactions/{id}/reject` - Reject transaction
 
 ### Hen Batches
+
 - `GET /api/hen-batches` - List hen batches
 - `GET /api/hen-batches/{id}` - Get hen batch
 - `POST /api/hen-batches` - Create hen batch
@@ -57,26 +63,31 @@ Notes:
 - `POST /api/hen-batches/mortality` - Record mortality
 
 ### Employees
+
 - `GET /api/employees` - List employees
 - `GET /api/employees/{id}` - Get employee
 - `POST /api/employees` - Create employee
 - `PUT /api/employees/{id}` - Update employee
 
 ### User Management
+
 - `GET /api/users` - List users for tenant
 - `POST /api/users/invite` - Invite user
 - `GET /api/users/invitations` - List invitations
 - `POST /api/users/accept-invite` - Accept invitation (public)
 
 ### Analytics
+
 - `GET /api/analytics/enhanced-monthly-summary?year={year}&month={month}` - Monthly summary
 - `GET /api/analytics/all-years-summary` - Yearly summaries
 
 ### Sensitive Data Config
+
 - `GET /api/sensitive-data-config` - Get config
 - `PUT /api/sensitive-data-config` - Update config
 
 ### Receipts
+
 - `GET /api/transactions/{transaction_id}/receipts` - List receipts
 - `POST /api/transactions/{transaction_id}/receipts` - Upload receipt
 
@@ -85,6 +96,7 @@ Notes:
 All endpoints except `/api/auth/login` and `/api/users/accept-invite` require authentication.
 
 Include JWT token in Authorization header:
+
 ```
 Authorization: Bearer <token>
 ```
@@ -92,6 +104,7 @@ Authorization: Bearer <token>
 ## Response Format
 
 Success:
+
 ```json
 {
   "success": true,
@@ -100,10 +113,9 @@ Success:
 ```
 
 Error:
+
 ```json
 {
   "error": "Error message"
 }
 ```
-
-
