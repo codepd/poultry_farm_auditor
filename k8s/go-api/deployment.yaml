@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-api
+  namespace: poultry-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-api
+  template:
+    metadata:
+      labels:
+        app: go-api
+    spec:
+      containers:
+        - name: go-api
+          image: 155139664929.dkr.ecr.ap-south-1.amazonaws.com/poultry-dev-go-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: poultry-db
+            - secretRef:
+                name: poultry-app
+          env:
+            - name: API_PORT
+              value: "8080"

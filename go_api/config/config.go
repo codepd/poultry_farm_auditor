@@ -11,6 +11,7 @@ type Config struct {
 	DBName     string
 	DBUser     string
 	DBPassword string
+	DBSSLMode  string
 	APIPort    string
 	JWTSecret  string
 	UploadPath string
@@ -23,6 +24,7 @@ func Load() *Config {
 		DBName:     getEnv("DB_NAME", "poultry_farm"),
 		DBUser:     getEnv("DB_USER", "postgres"),
 		DBPassword: getEnv("DB_PASSWORD", "postgres"),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 		APIPort:    getEnv("API_PORT", "8080"),
 		JWTSecret:  getEnv("JWT_SECRET", "change-this-secret-key-in-production"),
 		UploadPath: getEnv("UPLOAD_PATH", "./uploads"),
@@ -30,8 +32,8 @@ func Load() *Config {
 }
 
 func (c *Config) DatabaseURL() string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName)
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, c.DBSSLMode)
 }
 
 func getEnv(key, defaultValue string) string {

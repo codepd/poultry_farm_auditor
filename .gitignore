@@ -77,6 +77,8 @@ visualizations/**/*.mkv
 **/*.yml
 !.github/workflows/**/*.yml
 !.github/workflows/**/*.yaml
+!k8s/**/*.yml
+!k8s/**/*.yaml
 **/*.toml
 **/*.ini
 **/*.conf
