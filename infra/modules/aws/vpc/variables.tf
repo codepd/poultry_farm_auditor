@@ -17,3 +17,8 @@ variable "private_subnet_cidrs" {
 variable "tags" {
   type = map(string)
 }
+
+variable "kubernetes_cluster_name" {
+  type    = string
+  default = ""
+}

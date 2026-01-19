@@ -2,6 +2,21 @@ variable "cluster_name" {
   type = string
 }
 
+variable "cluster_version" {
+  type    = string
+  default = "1.34"
+}
+
+variable "endpoint_public_access" {
+  type    = bool
+  default = false
+}
+
+variable "public_access_cidrs" {
+  type    = list(string)
+  default = []
+}
+
 variable "vpc_id" {
   type = string
 }

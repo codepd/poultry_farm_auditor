@@ -8,12 +8,15 @@ module "vpc" {
   cidr_block           = var.vpc_cidr
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
+  kubernetes_cluster_name = "${var.name}-eks"
   tags                 = var.tags
 }
 
 module "eks" {
   source             = "../../../modules/aws/eks"
   cluster_name       = "${var.name}-eks"
+  endpoint_public_access = var.eks_endpoint_public_access
+  public_access_cidrs     = var.eks_public_access_cidrs
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   node_instance_type = var.eks_node_instance_type

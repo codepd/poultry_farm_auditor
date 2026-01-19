@@ -25,12 +25,12 @@ variable "private_subnet_cidrs" {
 
 variable "eks_node_instance_type" {
   type    = string
-  default = "t3.medium"
+  default = "t3.small"
 }
 
 variable "eks_node_desired" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "eks_node_min" {
@@ -40,7 +40,7 @@ variable "eks_node_min" {
 
 variable "eks_node_max" {
   type    = number
-  default = 3
+  default = 2
 }
 
 variable "db_name" {
@@ -114,4 +114,14 @@ variable "github_branch" {
 variable "github_role_name" {
   type    = string
   default = "poultry-dev-github-actions"
+}
+
+variable "eks_endpoint_public_access" {
+  type    = bool
+  default = false
+}
+
+variable "eks_public_access_cidrs" {
+  type    = list(string)
+  default = []
 }

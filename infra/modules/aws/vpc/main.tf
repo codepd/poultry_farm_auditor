@@ -34,7 +34,10 @@ resource "aws_subnet" "public" {
 
   tags = merge(var.tags, {
     Name = "${var.name}-public-${count.index + 1}"
-  })
+  }, var.kubernetes_cluster_name != "" ? {
+    "kubernetes.io/cluster/${var.kubernetes_cluster_name}" = "shared"
+    "kubernetes.io/role/elb"                                = "1"
+  } : {})
 }
 
 resource "aws_subnet" "private" {
@@ -45,7 +48,10 @@ resource "aws_subnet" "private" {
 
   tags = merge(var.tags, {
     Name = "${var.name}-private-${count.index + 1}"
-  })
+  }, var.kubernetes_cluster_name != "" ? {
+    "kubernetes.io/cluster/${var.kubernetes_cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"                      = "1"
+  } : {})
 }
 
 resource "aws_route_table" "public" {
