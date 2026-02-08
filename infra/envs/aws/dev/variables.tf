@@ -78,6 +78,11 @@ variable "frontend_domain_name" {
   default = "app-dev.mykolipannai.com"
 }
 
+variable "route53_zone_name" {
+  type    = string
+  default = "mykolipannai.com"
+}
+
 variable "api_domain_name" {
   type    = string
   default = "api-dev.mykolipannai.com"

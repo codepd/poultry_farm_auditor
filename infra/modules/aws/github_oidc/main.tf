@@ -63,3 +63,49 @@ resource "aws_iam_role_policy" "ecr_push" {
     ]
   })
 }
+
+resource "aws_iam_role_policy" "s3_deploy" {
+  count = var.s3_bucket_arn != "" ? 1 : 0
+  name  = "${var.role_name}-s3"
+  role  = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.s3_bucket_arn,
+          "${var.s3_bucket_arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "cloudfront_invalidate" {
+  count = var.cloudfront_distribution_id != "" ? 1 : 0
+  name  = "${var.role_name}-cloudfront"
+  role  = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation",
+          "cloudfront:GetInvalidation",
+          "cloudfront:ListInvalidations"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}

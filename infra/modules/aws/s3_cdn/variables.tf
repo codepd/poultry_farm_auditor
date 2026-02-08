@@ -3,7 +3,15 @@ variable "bucket_name" {
 }
 
 variable "domain_name" {
-  type = string
+  type     = string
+  default  = ""
+  nullable = true
+}
+
+variable "route53_zone_id" {
+  type     = string
+  default  = ""
+  nullable = true
 }
 
 variable "tags" {

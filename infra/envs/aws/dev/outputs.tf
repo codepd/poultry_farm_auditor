@@ -18,6 +18,11 @@ output "frontend_cdn_domain" {
   value = module.s3_cdn.cloudfront_domain_name
 }
 
+output "frontend_cloudfront_distribution_id" {
+  value       = module.s3_cdn.cloudfront_distribution_id
+  description = "CloudFront distribution ID for cache invalidation"
+}
+
 output "bastion_instance_id" {
   value = module.bastion.instance_id
 }
