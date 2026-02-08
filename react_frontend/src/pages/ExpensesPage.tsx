@@ -27,7 +27,6 @@ const COMMON_EXPENSES = [
 const OTHER_OPTION = 'Other';
 
 const ExpensesPage: React.FC = () => {
-  const { currentTenant } = useAuth();
   const [expenses, setExpenses] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -210,13 +209,13 @@ const ExpensesPage: React.FC = () => {
                 {formData.selected_expense === OTHER_OPTION && (
                   <div className="form-group" style={{ marginTop: '0.75rem' }}>
                     <label>Description</label>
-                    <input
-                      type="text"
-                      value={formData.item_name}
-                      onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
+                <input
+                  type="text"
+                  value={formData.item_name}
+                  onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
                       placeholder="Enter expense description"
-                      required
-                    />
+                  required
+                />
                   </div>
                 )}
               </div>

@@ -44,7 +44,7 @@ export function useTenant() {
     };
 
     fetchTenant();
-  }, [currentTenant?.tenant_id]);
+  }, [currentTenant?.tenant_id, currentTenant?.name]);
 
   return {
     tenant,

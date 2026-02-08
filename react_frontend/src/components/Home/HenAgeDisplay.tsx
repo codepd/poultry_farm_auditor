@@ -7,7 +7,6 @@ import { formatDateForTenant, calculateAgeFromDate } from '../../utils/dateUtils
 import './HenAgeDisplay.css';
 
 const HenAgeDisplay: React.FC = () => {
-  const { currentTenant } = useAuth();
   const tenantHook = useTenant();
   const tenant = tenantHook.tenant;
   const timezone = tenantHook.timezone;

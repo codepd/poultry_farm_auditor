@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { transactionsAPI, tenantItemsAPI, TenantItem } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import './MultiCategoryEntry.css';
@@ -36,8 +36,8 @@ const MultiCategoryEntry: React.FC = () => {
     }));
   };
   
-  // Default items as fallback
-  const DEFAULT_EGG_ITEMS = createDefaultItems('EGG', [
+  // Default items as fallback - memoized to avoid recreation
+  const DEFAULT_EGG_ITEMS = useMemo(() => createDefaultItems('EGG', [
     'LARGE EGG',
     'MEDIUM EGG',
     'SMALL EGG',
@@ -46,16 +46,16 @@ const MultiCategoryEntry: React.FC = () => {
     'DIRT EGG',
     'CORRECT EGG',
     'EXPORT EGG',
-  ]);
+  ]), [currentTenant?.tenant_id]);
 
-  const DEFAULT_FEED_ITEMS = createDefaultItems('FEED', [
+  const DEFAULT_FEED_ITEMS = useMemo(() => createDefaultItems('FEED', [
     'LAYER MASH',
     'GROWER MASH',
     'PRE LAYER MASH',
     'LAYER MASH BULK',
     'GROWER MASH BULK',
     'PRE LAYER MASH BULK',
-  ]);
+  ]), [currentTenant?.tenant_id]);
 
   // Fetch items from API based on transaction type
   useEffect(() => {
@@ -76,7 +76,7 @@ const MultiCategoryEntry: React.FC = () => {
     };
 
     fetchItems();
-  }, [transactionType]);
+  }, [transactionType, DEFAULT_EGG_ITEMS, DEFAULT_FEED_ITEMS]);
 
   const addEntry = () => {
     setEntries([

@@ -296,10 +296,10 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     });
   }
 
-  // Get all available years from the data
-  const availableYears = Array.from(
-    new Set(processedPrices.map(p => new Date(p.price_date).getFullYear()))
-  ).sort((a, b) => b - a); // Most recent first
+  // Get all available years from the data (commented out as unused but kept for future use)
+  // const availableYears = Array.from(
+  //   new Set(processedPrices.map(p => new Date(p.price_date).getFullYear()))
+  // ).sort((a, b) => b - a); // Most recent first
 
   // Color palette for different items
   const itemColors = [

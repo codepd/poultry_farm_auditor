@@ -13,7 +13,7 @@ const AcceptInvitePage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [inviteInfo, setInviteInfo] = useState<{ email: string; role: string } | null>(null);
+  const [inviteInfo] = useState<{ email: string; role: string } | null>(null);
 
   useEffect(() => {
     if (!token) {

@@ -7,7 +7,7 @@ import MortalityChart from '../components/HenBatches/MortalityChart';
 import './HenBatchesPage.css';
 
 const HenBatchesPage: React.FC = () => {
-  const { currentTenant, user } = useAuth();
+  const { user } = useAuth();
   const { timezone, dateFormat } = useTenant();
   const [batches, setBatches] = useState<HenBatch[]>([]);
   const [loading, setLoading] = useState(true);
