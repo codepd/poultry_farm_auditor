@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HenBatch } from '../../services/api';
 import api from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../hooks/useTenant';
 import { formatDateForTenant, calculateAgeFromDate } from '../../utils/dateUtils';
 import './HenAgeDisplay.css';

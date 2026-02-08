@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
 import './ExpensesPage.css';
 
