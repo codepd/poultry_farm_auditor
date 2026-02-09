@@ -1,0 +1,46 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: go-api-gateway
+  namespace: poultry-dev
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"
+      # Redirect HTTP to HTTPS
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        # Certificate will be configured via cert-manager or manual secret
+        credentialName: go-api-tls-cert
+      hosts:
+        - "*"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: go-api-vs
+  namespace: poultry-dev
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - go-api-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api
+      route:
+        - destination:
+            host: go-api
+            port:
+              number: 8080

@@ -4,10 +4,10 @@ metadata:
   name: go-api
   namespace: poultry-dev
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: go-api
   ports:
     - name: http
-      port: 80
+      port: 8080
       targetPort: 8080

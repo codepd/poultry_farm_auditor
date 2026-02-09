@@ -47,6 +47,12 @@ func main() {
 	// API routes
 	apiRouter := r.PathPrefix("/api").Subrouter()
 
+	// API health check (for ALB health checks)
+	apiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
+
 	// Public routes
 	apiRouter.HandleFunc("/auth/login", handlers.Login(cfg)).Methods("POST")
 
