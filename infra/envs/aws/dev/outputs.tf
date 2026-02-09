@@ -34,3 +34,18 @@ output "ecr_repository_url" {
 output "github_actions_role_arn" {
   value = module.github_oidc.role_arn
 }
+
+output "api_certificate_arn" {
+  value       = var.api_domain_name != "" ? aws_acm_certificate_validation.api[0].certificate_arn : ""
+  description = "ACM certificate ARN for API domain (use in Ingress annotation)"
+}
+
+output "api_domain_name" {
+  value       = var.api_domain_name
+  description = "API domain name"
+}
+
+output "route53_zone_id" {
+  value       = var.api_domain_name != "" && length(data.aws_route53_zone.api) > 0 ? data.aws_route53_zone.api[0].zone_id : ""
+  description = "Route53 zone ID for API domain"
+}

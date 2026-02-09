@@ -6,13 +6,19 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # Certificate ARN will be set after Terraform creates the ACM certificate
+    # Get it from: terraform output -raw api_certificate_arn
+    # Then update this annotation: alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:..."
+    alb.ingress.kubernetes.io/certificate-arn: "" # TODO: Set after certificate is created
     alb.ingress.kubernetes.io/healthcheck-path: /api/health
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
 spec:
   ingressClassName: alb
   rules:
-    - http:
+    - host: api-dev.mykolipannai.com # Optional: remove if using ALB default domain
+      http:
         paths:
           - path: /api
             pathType: Prefix

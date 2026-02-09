@@ -80,3 +80,59 @@ module "github_oidc" {
   s3_bucket_arn              = module.s3_cdn.bucket_arn
   cloudfront_distribution_id = module.s3_cdn.cloudfront_distribution_id
 }
+
+# Route53 zone for API domain (use existing or create new)
+data "aws_route53_zone" "api" {
+  count = var.api_domain_name != "" ? 1 : 0
+  name  = var.route53_zone_name
+}
+
+# ACM certificate for API domain (in ap-south-1 for ALB)
+resource "aws_acm_certificate" "api" {
+  count             = var.api_domain_name != "" ? 1 : 0
+  domain_name       = var.api_domain_name
+  validation_method = "DNS"
+  tags              = var.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Route53 validation records for ACM certificate
+resource "aws_route53_record" "api_cert_validation" {
+  for_each = var.api_domain_name != "" && length(data.aws_route53_zone.api) > 0 ? {
+    for dvo in aws_acm_certificate.api[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  zone_id = data.aws_route53_zone.api[0].zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+# Wait for certificate validation
+resource "aws_acm_certificate_validation" "api" {
+  count                   = var.api_domain_name != "" ? 1 : 0
+  certificate_arn         = aws_acm_certificate.api[0].arn
+  validation_record_fqdns = [for record in aws_route53_record.api_cert_validation : record.fqdn]
+}
+
+# Route53 A record pointing to ALB (set alb_dns_name after ALB is created)
+resource "aws_route53_record" "api_alias" {
+  count   = var.api_domain_name != "" && var.alb_dns_name != "" && length(data.aws_route53_zone.api) > 0 ? 1 : 0
+  zone_id = data.aws_route53_zone.api[0].zone_id
+  name    = var.api_domain_name
+  type    = "A"
+
+  alias {
+    name                   = var.alb_dns_name
+    zone_id                = var.alb_hosted_zone_id
+    evaluate_target_health = false
+  }
+}

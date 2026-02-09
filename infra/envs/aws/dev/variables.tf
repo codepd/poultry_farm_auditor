@@ -88,6 +88,18 @@ variable "api_domain_name" {
   default = "api-dev.mykolipannai.com"
 }
 
+variable "alb_dns_name" {
+  type        = string
+  default     = ""
+  description = "ALB DNS name (set after ALB is created from Ingress). Get with: kubectl get ingress go-api-ingress -n poultry-dev -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+}
+
+variable "alb_hosted_zone_id" {
+  type        = string
+  default     = "Z1D633PJN98FT9" # ALB hosted zone ID for ap-south-1
+  description = "ALB hosted zone ID for the region (constant for all ALBs in ap-south-1)"
+}
+
 variable "tags" {
   type = map(string)
   default = {
