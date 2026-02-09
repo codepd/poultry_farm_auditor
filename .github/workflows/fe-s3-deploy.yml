@@ -43,6 +43,8 @@ jobs:
 
       - name: Build React app
         working-directory: react_frontend
+        env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL || 'http://localhost:8080/api' }}
         run: npm run build
 
       - name: Deploy to S3
