@@ -2,31 +2,48 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 )
 
-func CORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-
-		// For development: allow all origins (simpler and works for localhost)
-		// In production, you should whitelist specific origins
-		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		} else {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+// CORS returns a middleware that allows requests from whitelisted origins.
+// If allowedOrigins is nil or empty, mirrors the request Origin (permissive, for dev).
+func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowedSet := make(map[string]bool)
+	for _, o := range allowedOrigins {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			allowedSet[o] = true
 		}
+	}
 
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key")
-		// Removed Access-Control-Allow-Credentials since we use JWT tokens in Authorization header
-		w.Header().Set("Access-Control-Max-Age", "3600")
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
 
-		// Handle preflight OPTIONS request - MUST return before calling next handler
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+			if origin != "" {
+				if len(allowedSet) > 0 {
+					if allowedSet[origin] {
+						w.Header().Set("Access-Control-Allow-Origin", origin)
+					}
+					// If not in whitelist, do not set Access-Control-Allow-Origin (browser will block)
+				} else {
+					// No whitelist = permissive (dev): mirror origin
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			} else if len(allowedSet) == 0 {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
 
-		next.ServeHTTP(w, r)
-	})
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key")
+			w.Header().Set("Access-Control-Max-Age", "3600")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

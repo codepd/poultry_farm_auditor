@@ -15,6 +15,7 @@ env:
   AWS_REGION: ap-south-1
   S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
   CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+  REACT_APP_API_URL: https://api-dev.mykolipannai.com/api
 
 jobs:
   build-and-deploy:
@@ -44,7 +45,7 @@ jobs:
       - name: Build React app
         working-directory: react_frontend
         env:
-          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL || 'http://localhost:8080/api' }}
+          REACT_APP_API_URL: ${{ env.REACT_APP_API_URL }}
         run: npm run build
 
       - name: Deploy to S3

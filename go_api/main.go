@@ -26,7 +26,7 @@ func main() {
 
 	// Apply middleware first (runs on all requests including OPTIONS)
 	r.Use(middleware.Logging)
-	r.Use(middleware.CORS)
+	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 
 	// Global OPTIONS handler for CORS preflight - must match all paths
 	// Register this before other routes so it catches OPTIONS requests
