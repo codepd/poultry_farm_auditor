@@ -9,6 +9,7 @@ import HomePage from './pages/HomePage';
 import ExpensesPage from './pages/ExpensesPage';
 import HenBatchesPage from './pages/HenBatchesPage';
 import PriceHistoryPage from './pages/PriceHistoryPage';
+import UserManagementPage from './pages/UserManagementPage';
 import './App.css';
 
 function App() {
@@ -54,6 +55,16 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <PriceHistoryPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <UserManagementPage />
                 </Layout>
               </ProtectedRoute>
             }

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,15 +27,16 @@ type TenantUser struct {
 }
 
 type Invitation struct {
-	ID              int        `json:"id"`
-	TenantID        uuid.UUID  `json:"tenant_id"`
-	InvitedByUserID int        `json:"invited_by_user_id"`
-	Email           string     `json:"email"`
-	Role            string     `json:"role"`
-	Token           string     `json:"token"`
-	ExpiresAt       time.Time  `json:"expires_at"`
-	AcceptedAt      *time.Time `json:"accepted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
+	ID              int            `json:"id"`
+	TenantID        uuid.UUID      `json:"tenant_id"`
+	InvitedByUserID int            `json:"invited_by_user_id"`
+	Email           sql.NullString `json:"email"`
+	Phone           sql.NullString `json:"phone"`
+	Role            string         `json:"role"`
+	Token           string         `json:"token"`
+	ExpiresAt       time.Time      `json:"expires_at"`
+	AcceptedAt      *time.Time     `json:"accepted_at,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
 }
 
 type RolePermission struct {

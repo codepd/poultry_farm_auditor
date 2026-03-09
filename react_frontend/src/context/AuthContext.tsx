@@ -5,6 +5,7 @@ interface AuthContextType {
   user: LoginResponse | null;
   currentTenant: TenantInfo | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithOTP: (phone: string, code: string) => Promise<void>;
   logout: () => void;
   switchTenant: (tenantId: string) => void;
   isAuthenticated: boolean;
@@ -41,8 +42,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const response = await authAPI.login({ email, password });
+  const handleLoginResponse = (response: LoginResponse) => {
     localStorage.setItem('token', response.token);
     localStorage.setItem('user', JSON.stringify(response));
     
@@ -52,6 +52,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     
     setUser(response);
+  };
+
+  const login = async (email: string, password: string) => {
+    const response = await authAPI.login({ email, password });
+    handleLoginResponse(response);
+  };
+
+  const loginWithOTP = async (phone: string, code: string) => {
+    const response = await authAPI.verifyOTP({ phone, code });
+    handleLoginResponse(response);
   };
 
   const logout = () => {
@@ -79,6 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         user,
         currentTenant,
         login,
+        loginWithOTP,
         logout,
         switchTenant,
         isAuthenticated: !!user && !!currentTenant,

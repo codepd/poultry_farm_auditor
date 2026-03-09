@@ -115,6 +115,95 @@
   background: #e0e0e0;
 }
 
+/* Profile completion banner */
+.profile-banner {
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.profile-banner:hover {
+  opacity: 0.95;
+}
+
+.profile-icon.needs-attention {
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #f59e0b;
+}
+
+/* Name editing in dropdown */
+.name-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.name-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+}
+
+.name-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.name-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.save-name-btn {
+  padding: 0.35rem 0.75rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.save-name-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancel-name-btn {
+  padding: 0.35rem 0.75rem;
+  background: #f3f4f6;
+  color: #666;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.edit-name-btn {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  padding: 0;
+}
+
+.edit-name-btn:hover {
+  text-decoration: underline;
+}
+
+.profile-name {
+  display: flex;
+  align-items: center;
+}
+
 
 
 

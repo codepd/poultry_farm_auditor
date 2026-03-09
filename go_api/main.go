@@ -55,6 +55,10 @@ func main() {
 
 	// Public routes
 	apiRouter.HandleFunc("/auth/login", handlers.Login(cfg)).Methods("POST")
+	apiRouter.HandleFunc("/auth/send-otp", handlers.SendOTP(cfg)).Methods("POST")
+	apiRouter.HandleFunc("/auth/verify-otp", handlers.VerifyOTP(cfg)).Methods("POST")
+	apiRouter.HandleFunc("/auth/country-codes", handlers.GetAllCountryCodes).Methods("GET")
+	apiRouter.HandleFunc("/tenants/{id}/country-codes", handlers.GetTenantCountryCodes).Methods("GET")
 
 	// Protected routes (require authentication)
 	protectedRouter := apiRouter.PathPrefix("").Subrouter()
@@ -67,6 +71,9 @@ func main() {
 	protectedRouter.HandleFunc("/tenants", handlers.CreateTenant).Methods("POST")
 	protectedRouter.HandleFunc("/tenants/{id}", handlers.GetTenant).Methods("GET")
 	protectedRouter.HandleFunc("/tenants/{id}", handlers.UpdateTenant).Methods("PUT")
+
+	// Country code management (admin/owner only)
+	protectedRouter.HandleFunc("/tenants/{id}/country-codes", handlers.SetTenantCountryCodes).Methods("PUT")
 
 	// Transaction routes
 	protectedRouter.HandleFunc("/transactions", handlers.GetTransactions).Methods("GET")
@@ -96,6 +103,7 @@ func main() {
 
 	// User management routes
 	protectedRouter.HandleFunc("/users", handlers.GetUsers).Methods("GET")
+	protectedRouter.HandleFunc("/users/profile", handlers.UpdateProfile).Methods("PUT")
 	protectedRouter.HandleFunc("/users/invite", handlers.InviteUser).Methods("POST")
 	protectedRouter.HandleFunc("/users/invitations", handlers.GetInvitations).Methods("GET")
 

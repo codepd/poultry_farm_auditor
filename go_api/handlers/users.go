@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
 	"poultry-farm-api/models"
@@ -39,8 +41,8 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := database.DB.Query(`
-		SELECT u.id, u.email, u.full_name, u.is_active, u.created_at, u.updated_at,
-		       tu.role, tu.is_owner
+		SELECT u.id, COALESCE(u.email, ''), COALESCE(u.phone, ''), COALESCE(u.full_name, ''),
+		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner
 		FROM users u
 		JOIN tenant_users tu ON tu.user_id = u.id
 		WHERE tu.tenant_id = $1
@@ -56,6 +58,7 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	type UserResponse struct {
 		ID        int       `json:"id"`
 		Email     string    `json:"email"`
+		Phone     string    `json:"phone"`
 		FullName  string    `json:"full_name"`
 		IsActive  bool      `json:"is_active"`
 		Role      string    `json:"role"`
@@ -68,7 +71,7 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u UserResponse
 		err := rows.Scan(
-			&u.ID, &u.Email, &u.FullName, &u.IsActive,
+			&u.ID, &u.Email, &u.Phone, &u.FullName, &u.IsActive,
 			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner,
 		)
 		if err != nil {
@@ -84,8 +87,9 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 type InviteUserRequest struct {
-	Email  string    `json:"email"`
-	Role   string    `json:"role"`
+	Email string `json:"email"`
+	Phone string `json:"phone"`
+	Role  string `json:"role"`
 }
 
 // InviteUser creates an invitation for a new user
@@ -115,52 +119,74 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	email := strings.TrimSpace(req.Email)
+	phone := strings.TrimSpace(req.Phone)
+
+	if email == "" && phone == "" {
+		respondWithError(w, http.StatusBadRequest, "Either email or phone is required")
+		return
+	}
+
 	// Validate role
 	validRoles := map[string]bool{
 		"ADMIN": true, "OWNER": true, "CO_OWNER": true,
-		"OTHER_USER": true, "AUDITOR": true,
+		"OTHER_USER": true, "AUDITOR": true, "MANAGER": true,
 	}
 	if !validRoles[req.Role] {
 		respondWithError(w, http.StatusBadRequest, "Invalid role")
 		return
 	}
 
-	// Check if user already exists
+	isPhoneInvite := phone != "" && email == ""
+
+	// Check if user already has access to this tenant
 	var existingUserID int
-	err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
+	var userExists bool
+	if isPhoneInvite {
+		err = database.DB.QueryRow("SELECT id FROM users WHERE phone = $1", phone).Scan(&existingUserID)
+	} else {
+		err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", email).Scan(&existingUserID)
+	}
+	if err == nil {
+		userExists = true
+		var hasAccess bool
+		database.DB.QueryRow(`
+			SELECT EXISTS(SELECT 1 FROM tenant_users WHERE user_id = $1 AND tenant_id = $2)
+		`, existingUserID, tenantID).Scan(&hasAccess)
+		if hasAccess {
+			respondWithError(w, http.StatusBadRequest, "User already has access to this tenant")
+			return
+		}
+	} else if err != sql.ErrNoRows {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
 
-	var userID int
-	if err == sql.ErrNoRows {
-		// Create new user (inactive until they accept invite)
+	// Check for existing pending invitation
+	var pendingExists bool
+	if isPhoneInvite {
+		database.DB.QueryRow(`
+			SELECT EXISTS(SELECT 1 FROM invitations WHERE phone = $1 AND tenant_id = $2 AND accepted_at IS NULL AND expires_at > NOW())
+		`, phone, tenantID).Scan(&pendingExists)
+	} else {
+		database.DB.QueryRow(`
+			SELECT EXISTS(SELECT 1 FROM invitations WHERE email = $1 AND tenant_id = $2 AND accepted_at IS NULL AND expires_at > NOW())
+		`, email, tenantID).Scan(&pendingExists)
+	}
+	if pendingExists {
+		respondWithError(w, http.StatusBadRequest, "A pending invitation already exists")
+		return
+	}
+
+	// For email invites with no existing user, create an inactive user stub
+	if !isPhoneInvite && !userExists {
 		err = database.DB.QueryRow(`
-			INSERT INTO users (email, is_active)
-			VALUES ($1, FALSE)
-			RETURNING id
-		`, req.Email).Scan(&userID)
-
+			INSERT INTO users (email, is_active) VALUES ($1, FALSE) RETURNING id
+		`, email).Scan(&existingUserID)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to create user")
 			return
 		}
-	} else if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Database error")
-		return
-	} else {
-		userID = existingUserID
-	}
-
-	// Check if user already has access to this tenant
-	var hasAccess bool
-	err = database.DB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM tenant_users 
-			WHERE user_id = $1 AND tenant_id = $2
-		)
-	`, userID, tenantID).Scan(&hasAccess)
-
-	if hasAccess {
-		respondWithError(w, http.StatusBadRequest, "User already has access to this tenant")
-		return
 	}
 
 	// Generate invitation token
@@ -168,42 +194,44 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 	rand.Read(tokenBytes)
 	token := hex.EncodeToString(tokenBytes)
 
-	expiresAt := time.Now().Add(7 * 24 * time.Hour) // 7 days
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
 
 	// Create invitation
 	var inviteID int
 	err = database.DB.QueryRow(`
-		INSERT INTO invitations (
-			tenant_id, invited_by_user_id, email, role, token, expires_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO invitations (tenant_id, invited_by_user_id, email, phone, role, token, expires_at)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7)
 		RETURNING id
-	`, tenantID, user.UserID, req.Email, req.Role, token, expiresAt).Scan(&inviteID)
+	`, tenantID, user.UserID, email, phone, req.Role, token, expiresAt).Scan(&inviteID)
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create invitation")
 		return
 	}
 
-	// Generate invitation link
-	// In production, this would be the actual frontend URL
-	// For local development, use localhost
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:4300"
+	responseData := map[string]interface{}{
+		"invitation_id": inviteID,
+		"role":          req.Role,
+		"expires_at":    expiresAt,
 	}
-	invitationLink := fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
+
+	if isPhoneInvite {
+		responseData["phone"] = phone
+		responseData["message"] = "Phone invitation created. The user can now log in with OTP."
+	} else {
+		frontendURL := os.Getenv("FRONTEND_URL")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:4300"
+		}
+		responseData["email"] = email
+		responseData["token"] = token
+		responseData["invitation_link"] = fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
+	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"success": true,
-		"message": "Invitation sent",
-		"data": map[string]interface{}{
-			"invitation_id":  inviteID,
-			"email":          req.Email,
-			"token":          token,
-			"expires_at":     expiresAt,
-			"invitation_link": invitationLink,
-		},
+		"message": "Invitation created",
+		"data":    responseData,
 	})
 }
 
@@ -224,12 +252,12 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	// Find invitation
 	var invite models.Invitation
 	err := database.DB.QueryRow(`
-		SELECT id, tenant_id, invited_by_user_id, email, role, token, expires_at, accepted_at
+		SELECT id, tenant_id, invited_by_user_id, email, phone, role, token, expires_at, accepted_at
 		FROM invitations
 		WHERE token = $1
 	`, req.Token).Scan(
 		&invite.ID, &invite.TenantID, &invite.InvitedByUserID,
-		&invite.Email, &invite.Role, &invite.Token, &invite.ExpiresAt, &invite.AcceptedAt,
+		&invite.Email, &invite.Phone, &invite.Role, &invite.Token, &invite.ExpiresAt, &invite.AcceptedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -261,18 +289,21 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user
+	inviteEmail := ""
+	if invite.Email.Valid {
+		inviteEmail = invite.Email.String
+	}
+
 	var userID int
-	err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", invite.Email).Scan(&userID)
+	err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", inviteEmail).Scan(&userID)
 
 	if err == sql.ErrNoRows {
-		// Create user
 		err = database.DB.QueryRow(`
 			INSERT INTO users (email, password_hash, full_name, is_active)
 			VALUES ($1, $2, $3, TRUE)
 			RETURNING id
-		`, invite.Email, passwordHash, req.FullName).Scan(&userID)
+		`, inviteEmail, passwordHash, req.FullName).Scan(&userID)
 	} else if err == nil {
-		// Update existing user
 		_, err = database.DB.Exec(`
 			UPDATE users
 			SET password_hash = $1, full_name = $2, is_active = TRUE, updated_at = CURRENT_TIMESTAMP
@@ -316,6 +347,45 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateProfile lets a user update their own profile (name, etc.)
+func UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	var req struct {
+		FullName string `json:"full_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	fullName := strings.TrimSpace(req.FullName)
+	if fullName == "" {
+		respondWithError(w, http.StatusBadRequest, "Full name is required")
+		return
+	}
+
+	_, err := database.DB.Exec(`
+		UPDATE users SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+	`, fullName, user.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update profile")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Profile updated",
+		"data": map[string]interface{}{
+			"full_name": fullName,
+		},
+	})
+}
+
 // GetInvitations returns pending invitations for a tenant
 func GetInvitations(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
@@ -338,7 +408,7 @@ func GetInvitations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := database.DB.Query(`
-		SELECT id, tenant_id, invited_by_user_id, email, role, token,
+		SELECT id, tenant_id, invited_by_user_id, email, phone, role, token,
 		       expires_at, accepted_at, created_at
 		FROM invitations
 		WHERE tenant_id = $1
@@ -355,7 +425,7 @@ func GetInvitations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var inv models.Invitation
 		err := rows.Scan(
-			&inv.ID, &inv.TenantID, &inv.InvitedByUserID, &inv.Email,
+			&inv.ID, &inv.TenantID, &inv.InvitedByUserID, &inv.Email, &inv.Phone,
 			&inv.Role, &inv.Token, &inv.ExpiresAt, &inv.AcceptedAt, &inv.CreatedAt,
 		)
 		if err != nil {

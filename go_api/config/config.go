@@ -31,7 +31,7 @@ func Load() *Config {
 		APIPort:    getEnv("API_PORT", "8080"),
 		JWTSecret:  getEnv("JWT_SECRET", "change-this-secret-key-in-production"),
 		UploadPath: getEnv("UPLOAD_PATH", "./uploads"),
-		CORSAllowedOrigins: parseCORSOrigins(getEnv("CORS_ALLOWED_ORIGINS", "https://d1umbk34tztlqz.cloudfront.net,https://mykolipannai.com,https://www.mykolipannai.com,https://app-dev.mykolipannai.com,http://localhost:3000,http://localhost:5173")),
+		CORSAllowedOrigins: parseCORSOrigins(getEnv("CORS_ALLOWED_ORIGINS", "https://d1umbk34tztlqz.cloudfront.net,https://mykolipannai.com,https://www.mykolipannai.com,https://app-dev.mykolipannai.com,http://localhost:3000,http://localhost:4300,http://localhost:5173")),
 	}
 }
 

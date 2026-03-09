@@ -156,11 +156,46 @@ export interface YearlySummary {
   net_profit: number;
 }
 
+export interface SendOTPRequest {
+  phone: string;
+  country_code?: string;
+  tenant_id?: string;
+}
+
+export interface SendOTPResponse {
+  success: boolean;
+  message: string;
+  phone: string;
+  expires_in: number;
+}
+
+export interface VerifyOTPRequest {
+  phone: string;
+  code: string;
+}
+
+export interface CountryCodeInfo {
+  country_code: string;
+  country_name: string;
+}
+
 // API Functions
 export const authAPI = {
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/login', data);
     return response.data.data || response.data as any;
+  },
+  sendOTP: async (data: SendOTPRequest): Promise<SendOTPResponse> => {
+    const response = await api.post<SendOTPResponse>('/auth/send-otp', data);
+    return response.data;
+  },
+  verifyOTP: async (data: VerifyOTPRequest): Promise<LoginResponse> => {
+    const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/verify-otp', data);
+    return response.data.data || response.data as any;
+  },
+  getCountryCodes: async (): Promise<CountryCodeInfo[]> => {
+    const response = await api.get<{ success: boolean; data: CountryCodeInfo[] }>('/auth/country-codes');
+    return response.data.data || [];
   },
 };
 
@@ -324,6 +359,57 @@ export const tenantItemsAPI = {
     }
     const response = await api.get<{ success: boolean; data: TenantItem[] }>('/tenants/items', { params });
     return response.data.data;
+  },
+};
+
+// User management types
+export interface TenantUser {
+  id: number;
+  email: string;
+  phone: string;
+  full_name: string;
+  is_active: boolean;
+  role: string;
+  is_owner: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvitationInfo {
+  id: number;
+  tenant_id: string;
+  invited_by_user_id: number;
+  email: { String: string; Valid: boolean } | null;
+  phone: { String: string; Valid: boolean } | null;
+  role: string;
+  token: string;
+  expires_at: string;
+  accepted_at?: string | null;
+  created_at: string;
+}
+
+export interface InviteRequest {
+  email?: string;
+  phone?: string;
+  role: string;
+}
+
+export const usersAPI = {
+  getUsers: async (): Promise<TenantUser[]> => {
+    const response = await api.get<{ success: boolean; data: TenantUser[] }>('/users');
+    return response.data.data || [];
+  },
+  inviteUser: async (data: InviteRequest) => {
+    const response = await api.post<{ success: boolean; message: string; data: any }>('/users/invite', data);
+    return response.data;
+  },
+  getInvitations: async (): Promise<InvitationInfo[]> => {
+    const response = await api.get<{ success: boolean; data: InvitationInfo[] }>('/users/invitations');
+    return response.data.data || [];
+  },
+  updateProfile: async (data: { full_name: string }) => {
+    const response = await api.put<{ success: boolean; message: string; data: any }>('/users/profile', data);
+    return response.data;
   },
 };
 
