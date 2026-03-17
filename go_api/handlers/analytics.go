@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
@@ -13,6 +14,13 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func sanitizeFloat(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
+}
 
 // GetEnhancedMonthlySummary returns detailed monthly statistics
 func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +87,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 
 	if err == sql.ErrNoRows {
 		// Get data from transactions if ledger_parse doesn't exist
-		var calcTotalEggPrice, calcTotalFeedPrice, calcTotalMedicines, calcOtherExpenses, calcNetProfit float64
+		var calcTotalEggPrice, calcTotalFeedPrice, calcTotalMedicines, calcOtherExpenses float64
+		var calcTotalDiscounts, calcTotalTDS, calcNetProfit float64
 		var calcTotalEggsSold, calcFeedPurchasedTonne float64
 		// No ledger parse - calculate from transactions
 		// Get egg sales
@@ -129,8 +138,28 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 				AND NOT (UPPER(item_name) LIKE '%LABOR%')
 		`, tenantID, year, month).Scan(&calcOtherExpenses)
 
-		// Calculate net profit: Sales - Total Expenses
-		calcNetProfit = calcTotalEggPrice - (calcTotalFeedPrice + calcTotalMedicines + calcOtherExpenses)
+		// Get discounts (income - add to sales)
+		database.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE tenant_id = $1 
+				AND EXTRACT(YEAR FROM transaction_date) = $2
+				AND EXTRACT(MONTH FROM transaction_date) = $3
+				AND transaction_type = 'DISCOUNT'
+		`, tenantID, year, month).Scan(&calcTotalDiscounts)
+
+		// Get TDS (expense - subtract from sales)
+		database.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE tenant_id = $1 
+				AND EXTRACT(YEAR FROM transaction_date) = $2
+				AND EXTRACT(MONTH FROM transaction_date) = $3
+				AND transaction_type = 'TDS'
+		`, tenantID, year, month).Scan(&calcTotalTDS)
+
+		// Calculate net profit: Egg sales + discounts - (feed + medicine + other + TDS)
+		calcNetProfit = (calcTotalEggPrice + calcTotalDiscounts) - (calcTotalFeedPrice + calcTotalMedicines + calcOtherExpenses + calcTotalTDS)
 
 		// Check sensitive data
 		shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
@@ -161,6 +190,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 					"total_feed_price":     calcTotalFeedPrice,
 					"total_medicines":      calcTotalMedicines,
 					"other_expenses":       calcOtherExpenses,
+					"total_discounts":      calcTotalDiscounts,
+					"total_tds":            calcTotalTDS,
 					"net_profit":           calcNetProfit,
 					"estimated_hens":       0,
 					"egg_percentage":       0,
@@ -233,6 +264,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		  AND EXTRACT(YEAR FROM transaction_date) = $2
 		  AND EXTRACT(MONTH FROM transaction_date) = $3
 	`, tenantID, year, month).Scan(&totalEggPrice, &totalEggsSold)
+	totalEggPrice = sanitizeFloat(totalEggPrice)
+	totalEggsSold = sanitizeFloat(totalEggsSold)
 
 	// Total feed purchases
 	database.DB.QueryRow(`
@@ -242,8 +275,10 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		  AND EXTRACT(YEAR FROM transaction_date) = $2
 		  AND EXTRACT(MONTH FROM transaction_date) = $3
 	`, tenantID, year, month).Scan(&totalFeedPrice, &feedPurchasedKg)
+	totalFeedPrice = sanitizeFloat(totalFeedPrice)
+	feedPurchasedKg = sanitizeFloat(feedPurchasedKg)
 
-	feedPurchasedTonne := feedPurchasedKg / 1000.0
+	feedPurchasedTonne := sanitizeFloat(feedPurchasedKg / 1000.0)
 
 	// Calculate days in month
 	daysInMonth := 31 // Default, will calculate properly
@@ -498,6 +533,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 
 	// Get medicine and other expenses from transactions for this month
 	var medicineExpenses, otherExpensesFromTxns float64
+	var totalDiscounts, totalTDS float64
 	database.DB.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM transactions
@@ -506,6 +542,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			AND EXTRACT(MONTH FROM transaction_date) = $3
 			AND category = 'MEDICINE' AND transaction_type IN ('PURCHASE', 'SALE')
 	`, tenantID, year, month).Scan(&medicineExpenses)
+	medicineExpenses = sanitizeFloat(medicineExpenses)
 
 	database.DB.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
@@ -515,6 +552,27 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			AND EXTRACT(MONTH FROM transaction_date) = $3
 			AND category = 'OTHER' AND transaction_type = 'EXPENSE'
 	`, tenantID, year, month).Scan(&otherExpensesFromTxns)
+	otherExpensesFromTxns = sanitizeFloat(otherExpensesFromTxns)
+
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1 
+			AND EXTRACT(YEAR FROM transaction_date) = $2
+			AND EXTRACT(MONTH FROM transaction_date) = $3
+			AND transaction_type = 'DISCOUNT'
+	`, tenantID, year, month).Scan(&totalDiscounts)
+	totalDiscounts = sanitizeFloat(totalDiscounts)
+
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1 
+			AND EXTRACT(YEAR FROM transaction_date) = $2
+			AND EXTRACT(MONTH FROM transaction_date) = $3
+			AND transaction_type = 'TDS'
+	`, tenantID, year, month).Scan(&totalTDS)
+	totalTDS = sanitizeFloat(totalTDS)
 
 	// Get payments received (PAYMENT transaction type)
 	var totalPayments float64
@@ -526,6 +584,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			AND EXTRACT(MONTH FROM transaction_date) = $3
 			AND transaction_type = 'PAYMENT'
 	`, tenantID, year, month).Scan(&totalPayments)
+	totalPayments = sanitizeFloat(totalPayments)
 
 	// Get payment breakdown from transactions
 	type PaymentBreakdownFromTxns struct {
@@ -573,6 +632,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	for eggBreakdownRows.Next() {
 		var breakdown EggBreakdownFromTxns
 		eggBreakdownRows.Scan(&breakdown.ItemName, &breakdown.Quantity, &breakdown.Amount)
+		breakdown.Quantity = sanitizeFloat(breakdown.Quantity)
+		breakdown.Amount = sanitizeFloat(breakdown.Amount)
 		eggBreakdownsFromTxns = append(eggBreakdownsFromTxns, breakdown)
 	}
 	eggBreakdownRows.Close()
@@ -628,6 +689,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	for feedBreakdownRows.Next() {
 		var breakdown FeedBreakdownFromTxns
 		feedBreakdownRows.Scan(&breakdown.ItemName, &breakdown.Quantity, &breakdown.Amount)
+		breakdown.Quantity = sanitizeFloat(breakdown.Quantity)
+		breakdown.Amount = sanitizeFloat(breakdown.Amount)
 		feedBreakdownsFromTxns = append(feedBreakdownsFromTxns, breakdown)
 	}
 	feedBreakdownRows.Close()
@@ -653,6 +716,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	for medicineBreakdownRows.Next() {
 		var breakdown MedicineBreakdownFromTxns
 		medicineBreakdownRows.Scan(&breakdown.ItemName, &breakdown.Quantity, &breakdown.Amount)
+		breakdown.Quantity = sanitizeFloat(breakdown.Quantity)
+		breakdown.Amount = sanitizeFloat(breakdown.Amount)
 		medicineBreakdownsFromTxns = append(medicineBreakdownsFromTxns, breakdown)
 	}
 	medicineBreakdownRows.Close()
@@ -660,20 +725,20 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	// Use ledger parse medicines if available, otherwise use transactions
 	var finalMedicines float64
 	if ledgerParse.TotalMedicines.Valid && ledgerParse.TotalMedicines.Float64 > 0 {
-		finalMedicines = ledgerParse.TotalMedicines.Float64
+		finalMedicines = sanitizeFloat(ledgerParse.TotalMedicines.Float64)
 	} else {
-		finalMedicines = medicineExpenses
+		finalMedicines = sanitizeFloat(medicineExpenses)
 	}
 
-	// Recalculate net profit: Sales - Total Expenses (more accurate)
-	calculatedNetProfit := totalEggPrice - (totalFeedPrice + finalMedicines + otherExpensesFromTxns)
+	// Recalculate net profit: Egg sales + discounts - (feed + medicine + other + TDS)
+	calculatedNetProfit := sanitizeFloat((totalEggPrice + totalDiscounts) - (totalFeedPrice + finalMedicines + otherExpensesFromTxns + totalTDS))
 
 	// Use calculated profit if ledger profit is 0, invalid, or significantly different
 	if !ledgerParse.NetProfit.Valid || ledgerParse.NetProfit.Float64 == 0 {
 		netProfit = calculatedNetProfit
 	} else {
 		// Use ledger profit if it exists, but verify it's reasonable
-		netProfit = ledgerParse.NetProfit.Float64
+		netProfit = sanitizeFloat(ledgerParse.NetProfit.Float64)
 	}
 
 	// Convert transaction breakdowns to the format expected by frontend
@@ -745,6 +810,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		"total_medicines":      finalMedicines,
 		"medicine_breakdown":   medicineBreakdownFinal,
 		"other_expenses":       otherExpensesFromTxns,
+		"total_discounts":      totalDiscounts,
+		"total_tds":            totalTDS,
 		"total_payments":       totalPayments,
 		"payment_breakdown":    paymentBreakdownFinal,
 		"net_profit":           netProfit,
