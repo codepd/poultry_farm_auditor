@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { authAPI, LoginResponse, TenantInfo } from '../services/api';
 
 interface AuthContextType {
@@ -8,39 +8,37 @@ interface AuthContextType {
   loginWithOTP: (phone: string, code: string) => Promise<void>;
   logout: () => void;
   switchTenant: (tenantId: string) => void;
+  updateUser: (patch: Partial<LoginResponse>) => void;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function loadStoredUser(): LoginResponse | null {
+  try {
+    const stored = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+    if (stored && token) return JSON.parse(stored);
+  } catch {
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('currentTenant');
+  }
+  return null;
+}
+
+function loadStoredTenant(userData: LoginResponse | null): TenantInfo | null {
+  if (!userData?.tenants) return null;
+  const storedTenant = localStorage.getItem('currentTenant');
+  if (storedTenant) {
+    return userData.tenants.find(t => t.tenant_id === storedTenant) || userData.tenants[0] || null;
+  }
+  return userData.tenants[0] || null;
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<LoginResponse | null>(null);
-  const [currentTenant, setCurrentTenant] = useState<TenantInfo | null>(null);
-
-  useEffect(() => {
-    // Load user from localStorage
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('token');
-    const storedTenant = localStorage.getItem('currentTenant');
-
-    if (storedUser && storedToken) {
-      try {
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-        
-        if (storedTenant) {
-          const tenant = userData.tenants?.find((t: TenantInfo) => t.tenant_id === storedTenant);
-          setCurrentTenant(tenant || userData.tenants?.[0] || null);
-        } else {
-          setCurrentTenant(userData.tenants?.[0] || null);
-        }
-      } catch (e) {
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
-        localStorage.removeItem('currentTenant');
-      }
-    }
-  }, []);
+  const [user, setUser] = useState<LoginResponse | null>(() => loadStoredUser());
+  const [currentTenant, setCurrentTenant] = useState<TenantInfo | null>(() => loadStoredTenant(loadStoredUser()));
 
   const handleLoginResponse = (response: LoginResponse) => {
     localStorage.setItem('token', response.token);
@@ -78,9 +76,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (tenant) {
         setCurrentTenant(tenant);
         localStorage.setItem('currentTenant', tenantId);
-        // TODO: Update JWT token with new tenant
       }
     }
+  };
+
+  const updateUser = (patch: Partial<LoginResponse>) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...patch };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   return (
@@ -92,6 +98,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loginWithOTP,
         logout,
         switchTenant,
+        updateUser,
         isAuthenticated: !!user && !!currentTenant,
       }}
     >

@@ -4,7 +4,7 @@ import { usersAPI } from '../../services/api';
 import './Header.css';
 
 const Header: React.FC = () => {
-  const { currentTenant, user, logout } = useAuth();
+  const { currentTenant, user, logout, updateUser } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
@@ -42,13 +42,9 @@ const Header: React.FC = () => {
     setSaving(true);
     try {
       await usersAPI.updateProfile({ full_name: nameInput.trim() });
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const userData = JSON.parse(stored);
-        userData.full_name = nameInput.trim();
-        localStorage.setItem('user', JSON.stringify(userData));
-      }
-      window.location.reload();
+      updateUser({ full_name: nameInput.trim() });
+      setEditingName(false);
+      setShowProfileMenu(false);
     } catch {
       // ignore
     } finally {
