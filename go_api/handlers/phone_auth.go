@@ -255,6 +255,25 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		// Check for pending invitations that may upgrade an existing user's role
+		var pendingInviteID int
+		var pendingRole string
+		var pendingTenantID uuid.UUID
+		invErr := database.DB.QueryRow(`
+			SELECT id, role, tenant_id FROM invitations
+			WHERE phone = $1 AND accepted_at IS NULL AND expires_at > NOW()
+			ORDER BY created_at DESC LIMIT 1
+		`, phone).Scan(&pendingInviteID, &pendingRole, &pendingTenantID)
+		if invErr == nil {
+			_, _ = database.DB.Exec(`
+				INSERT INTO tenant_users (tenant_id, user_id, role, is_owner)
+				VALUES ($1, $2, $3, FALSE)
+				ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = $3, updated_at = CURRENT_TIMESTAMP
+			`, pendingTenantID, userID, pendingRole)
+			database.DB.Exec("UPDATE invitations SET accepted_at = NOW() WHERE id = $1", pendingInviteID)
+			log.Printf("Applied pending invitation %d: user %d upgraded to %s", pendingInviteID, userID, pendingRole)
+		}
+
 		if !isActive {
 			respondWithError(w, http.StatusUnauthorized, "Account is inactive")
 			return
