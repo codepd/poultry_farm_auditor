@@ -58,8 +58,13 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 	// Get all child tenants (recursive)
 	rows, err := database.DB.Query(`
 		WITH RECURSIVE tenant_hierarchy AS (
-			SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency, 
-			       number_format, date_format, timezone, capacity, 
+			SELECT id, parent_id, name, COALESCE(location, '') AS location,
+			       COALESCE(country_code, '') AS country_code,
+			       COALESCE(currency, '') AS currency,
+			       COALESCE(number_format, '') AS number_format,
+			       COALESCE(date_format, '') AS date_format,
+			       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+			       capacity, 
 			       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 			       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 			       created_at, updated_at, 0 as level
@@ -68,8 +73,13 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			
 			UNION ALL
 			
-			SELECT t.id, t.parent_id, t.name, COALESCE(t.location, '') AS location, t.country_code, t.currency,
-			       t.number_format, t.date_format, t.timezone, t.capacity,
+			SELECT t.id, t.parent_id, t.name, COALESCE(t.location, '') AS location,
+			       COALESCE(t.country_code, '') AS country_code,
+			       COALESCE(t.currency, '') AS currency,
+			       COALESCE(t.number_format, '') AS number_format,
+			       COALESCE(t.date_format, '') AS date_format,
+			       COALESCE(t.timezone, 'Asia/Kolkata') AS timezone,
+			       t.capacity,
 			       t.age_category_chick_max_weeks, t.age_category_grower_max_weeks, t.age_category_prelayer_max_weeks,
 			       t.refresh_ttl_without_remember_hours, t.refresh_ttl_with_remember_days,
 			       t.created_at, t.updated_at, th.level + 1
@@ -185,8 +195,13 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
-		SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency,
-		       number_format, date_format, timezone, capacity,
+		SELECT id, parent_id, name, COALESCE(location, '') AS location,
+		       COALESCE(country_code, '') AS country_code,
+		       COALESCE(currency, '') AS currency,
+		       COALESCE(number_format, '') AS number_format,
+		       COALESCE(date_format, '') AS date_format,
+		       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+		       capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
@@ -323,8 +338,13 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
-		SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency,
-		       number_format, date_format, timezone, capacity,
+		SELECT id, parent_id, name, COALESCE(location, '') AS location,
+		       COALESCE(country_code, '') AS country_code,
+		       COALESCE(currency, '') AS currency,
+		       COALESCE(number_format, '') AS number_format,
+		       COALESCE(date_format, '') AS date_format,
+		       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+		       capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
