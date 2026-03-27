@@ -13,7 +13,6 @@ import {
   Cell,
 } from 'recharts';
 import './MonthlyBarChart.css';
-import { getOrCreateDeviceId } from '../../utils/deviceId';
 
 interface MonthlyData {
   year: number;
