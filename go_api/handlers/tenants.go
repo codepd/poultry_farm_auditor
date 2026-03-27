@@ -58,7 +58,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 	// Get all child tenants (recursive)
 	rows, err := database.DB.Query(`
 		WITH RECURSIVE tenant_hierarchy AS (
-			SELECT id, parent_id, name, location, country_code, currency, 
+			SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency, 
 			       number_format, date_format, timezone, capacity, 
 			       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 			       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -68,7 +68,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			
 			UNION ALL
 			
-			SELECT t.id, t.parent_id, t.name, t.location, t.country_code, t.currency,
+			SELECT t.id, t.parent_id, t.name, COALESCE(t.location, '') AS location, t.country_code, t.currency,
 			       t.number_format, t.date_format, t.timezone, t.capacity,
 			       t.age_category_chick_max_weeks, t.age_category_grower_max_weeks, t.age_category_prelayer_max_weeks,
 			       t.refresh_ttl_without_remember_hours, t.refresh_ttl_with_remember_days,
@@ -185,7 +185,7 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
-		SELECT id, parent_id, name, location, country_code, currency,
+		SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency,
 		       number_format, date_format, timezone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -323,7 +323,7 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
-		SELECT id, parent_id, name, location, country_code, currency,
+		SELECT id, parent_id, name, COALESCE(location, '') AS location, country_code, currency,
 		       number_format, date_format, timezone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -389,9 +389,20 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check permissions
+	// Check permissions.
+	// Allow explicit role-permission grant OR owner-like role on the same tenant.
+	hasManagePermission := false
 	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
-	if err != nil || !perms.CanManageUsers {
+	if err == nil && perms != nil && perms.CanManageUsers {
+		hasManagePermission = true
+	}
+	if !hasManagePermission {
+		isOwnerLikeRole := user.Role == "OWNER" || user.Role == "CO_OWNER" || user.Role == "ADMIN"
+		if isOwnerLikeRole && strings.EqualFold(user.TenantID, tenantID.String()) {
+			hasManagePermission = true
+		}
+	}
+	if !hasManagePermission {
 		respondWithError(w, http.StatusForbidden, "Insufficient permissions")
 		return
 	}
