@@ -1,0 +1,22 @@
+name: API post-deploy regression
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build and Push Go API Image"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  smoke:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      REGRESSION_API_BASE: https://api-dev.mykolipannai.com
+      REGRESSION_MODE: smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run API smoke regression
+        run: bash scripts/api-post-deploy-regression.sh

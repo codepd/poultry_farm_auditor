@@ -74,6 +74,7 @@ func runMigrations() {
 			remember_me BOOLEAN NOT NULL DEFAULT FALSE,
 			user_agent TEXT,
 			ip_address TEXT,
+			device_id VARCHAR(128),
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			last_used_at TIMESTAMP,
 			expires_at TIMESTAMP NOT NULL,
@@ -83,6 +84,7 @@ func runMigrations() {
 		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)",
 		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_tenant_id ON auth_sessions(tenant_id)",
 		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)",
+		"ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS device_id VARCHAR(128)",
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

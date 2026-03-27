@@ -125,6 +125,7 @@ func Login(cfg *config.Config) http.HandlerFunc {
 			refreshExpiresAt,
 			strings.TrimSpace(r.UserAgent()),
 			strings.TrimSpace(r.RemoteAddr),
+			DeviceIDFromRequest(r),
 		)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to create session")

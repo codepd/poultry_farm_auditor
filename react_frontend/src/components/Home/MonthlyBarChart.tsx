@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { getOrCreateDeviceId } from '../../utils/deviceId';
 import {
   BarChart,
   Bar,
@@ -12,6 +13,7 @@ import {
   Cell,
 } from 'recharts';
 import './MonthlyBarChart.css';
+import { getOrCreateDeviceId } from '../../utils/deviceId';
 
 interface MonthlyData {
   year: number;
@@ -46,8 +48,10 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
         const response = await fetch(
           `${process.env.REACT_APP_API_URL || 'http://localhost:8080/api'}/analytics/last-12-months`,
           {
+            credentials: 'include',
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+              'X-Device-Id': getOrCreateDeviceId(),
             },
           }
         );

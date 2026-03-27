@@ -1,6 +1,11 @@
 import axios from 'axios';
+import { getOrCreateDeviceId } from '../utils/deviceId';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+
+function attachDeviceId(config: { headers: import('axios').AxiosRequestHeaders }) {
+  config.headers.set('X-Device-Id', getOrCreateDeviceId());
+}
 
 const api = axios.create({
   baseURL: API_URL,
@@ -20,10 +25,16 @@ const refreshClient = axios.create({
 
 // Add token to requests
 api.interceptors.request.use((config) => {
+  attachDeviceId(config);
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  return config;
+});
+
+refreshClient.interceptors.request.use((config) => {
+  attachDeviceId(config);
   return config;
 });
 

@@ -19,9 +19,23 @@ import (
 
 const (
 	refreshTokenCookieName            = "refresh_token"
+	deviceIDHeaderName                = "X-Device-Id"
+	maxDeviceIDLen                    = 128
 	defaultNoRememberRefreshHours int = 12
 	defaultRememberRefreshDays    int = 30
 )
+
+// DeviceIDFromRequest returns a normalized client device id from X-Device-Id, or empty if absent/invalid.
+func DeviceIDFromRequest(r *http.Request) string {
+	s := strings.TrimSpace(r.Header.Get(deviceIDHeaderName))
+	if s == "" {
+		return ""
+	}
+	if len(s) > maxDeviceIDLen {
+		s = s[:maxDeviceIDLen]
+	}
+	return s
+}
 
 func issueAccessToken(cfg *config.Config, userID int, email string, tenantID uuid.UUID, role string) (string, error) {
 	claims := &middleware.Claims{
@@ -39,19 +53,24 @@ func issueAccessToken(cfg *config.Config, userID int, email string, tenantID uui
 	return token.SignedString([]byte(cfg.JWTSecret))
 }
 
-func createRefreshSession(userID int, tenantID uuid.UUID, rememberMe bool, expiresAt time.Time, userAgent, ipAddress string) (string, error) {
+func createRefreshSession(userID int, tenantID uuid.UUID, rememberMe bool, expiresAt time.Time, userAgent, ipAddress, deviceID string) (string, error) {
 	rawToken, err := generateRandomToken(32)
 	if err != nil {
 		return "", err
 	}
 	tokenHash := hashToken(rawToken)
 
+	var deviceIDArg interface{}
+	if strings.TrimSpace(deviceID) != "" {
+		deviceIDArg = deviceID
+	}
+
 	_, err = database.DB.Exec(`
 		INSERT INTO auth_sessions (
-			user_id, tenant_id, refresh_token_hash, remember_me, user_agent, ip_address, expires_at, last_used_at
+			user_id, tenant_id, refresh_token_hash, remember_me, user_agent, ip_address, device_id, expires_at, last_used_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-	`, userID, tenantID, tokenHash, rememberMe, userAgent, ipAddress, expiresAt.UTC())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+	`, userID, tenantID, tokenHash, rememberMe, userAgent, ipAddress, deviceIDArg, expiresAt.UTC())
 	if err != nil {
 		return "", err
 	}
