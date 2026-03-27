@@ -10,12 +10,10 @@ import (
 	"net/http"
 	"poultry-farm-api/config"
 	"poultry-farm-api/database"
-	"poultry-farm-api/middleware"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -28,8 +26,9 @@ type SendOTPRequest struct {
 }
 
 type VerifyOTPRequest struct {
-	Phone string `json:"phone"`
-	Code  string `json:"code"`
+	Phone      string `json:"phone"`
+	Code       string `json:"code"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 func generateOTP() (string, error) {
@@ -317,23 +316,32 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 			fullNameStr = fullName.String
 		}
 
-		claims := &middleware.Claims{
-			UserID:   userID,
-			Email:    emailStr,
-			TenantID: primaryTenant.TenantID.String(),
-			Role:     primaryTenant.Role,
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-			},
+		noRememberTTL, rememberTTL := getTenantRefreshDurations(primaryTenant.TenantID)
+		refreshTTL := noRememberTTL
+		if req.RememberMe {
+			refreshTTL = rememberTTL
 		}
+		refreshExpiresAt := time.Now().UTC().Add(refreshTTL)
 
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+		tokenString, err := issueAccessToken(cfg, userID, emailStr, primaryTenant.TenantID, primaryTenant.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 			return
 		}
+
+		refreshToken, err := createRefreshSession(
+			userID,
+			primaryTenant.TenantID,
+			req.RememberMe,
+			refreshExpiresAt,
+			strings.TrimSpace(r.UserAgent()),
+			strings.TrimSpace(r.RemoteAddr),
+		)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to create session")
+			return
+		}
+		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,

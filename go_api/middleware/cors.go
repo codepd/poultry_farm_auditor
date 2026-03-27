@@ -24,11 +24,13 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 				if len(allowedSet) > 0 {
 					if allowedSet[origin] {
 						w.Header().Set("Access-Control-Allow-Origin", origin)
+						w.Header().Set("Access-Control-Allow-Credentials", "true")
 					}
 					// If not in whitelist, do not set Access-Control-Allow-Origin (browser will block)
 				} else {
 					// No whitelist = permissive (dev): mirror origin
 					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				}
 			} else if len(allowedSet) == 0 {
 				w.Header().Set("Access-Control-Allow-Origin", "*")

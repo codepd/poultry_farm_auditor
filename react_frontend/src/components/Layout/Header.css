@@ -115,6 +115,61 @@
   background: #e0e0e0;
 }
 
+.secondary-action-btn {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 0.5rem;
+}
+
+.secondary-action-btn:hover:not(:disabled) {
+  background: #eef2ff;
+}
+
+.secondary-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.password-change-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.password-input {
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.password-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.password-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.password-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 /* Profile completion banner */
 .profile-banner {
   background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);

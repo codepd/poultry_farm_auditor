@@ -236,9 +236,9 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 type AcceptInviteRequest struct {
-	Token       string `json:"token"`
-	Password    string `json:"password"`
-	FullName    string `json:"full_name"`
+	Token    string `json:"token"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
 }
 
 // AcceptInvite accepts an invitation and activates user account
@@ -386,6 +386,129 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type ChangePasswordRequest struct {
+	CurrentPassword    string `json:"current_password"`
+	NewPassword        string `json:"new_password"`
+	LogoutOtherDevices *bool  `json:"logout_other_devices,omitempty"`
+}
+
+// ChangePassword lets a user change/reset their own password and optionally logout other devices.
+func ChangePassword(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if len(newPassword) < 6 {
+		respondWithError(w, http.StatusBadRequest, "New password must be at least 6 characters")
+		return
+	}
+
+	var existingPasswordHash sql.NullString
+	err := database.DB.QueryRow(`
+		SELECT password_hash
+		FROM users
+		WHERE id = $1
+	`, user.UserID).Scan(&existingPasswordHash)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusUnauthorized, "User not found")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to validate user")
+		return
+	}
+
+	if existingPasswordHash.Valid && strings.TrimSpace(existingPasswordHash.String) != "" {
+		if strings.TrimSpace(req.CurrentPassword) == "" {
+			respondWithError(w, http.StatusBadRequest, "Current password is required")
+			return
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(existingPasswordHash.String), []byte(req.CurrentPassword)); err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Current password is incorrect")
+			return
+		}
+	}
+
+	newPasswordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to secure password")
+		return
+	}
+
+	logoutOtherDevices := true
+	if req.LogoutOtherDevices != nil {
+		logoutOtherDevices = *req.LogoutOtherDevices
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to change password")
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE users
+		SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+	`, string(newPasswordHash), user.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update password")
+		return
+	}
+
+	revokedSessions := int64(0)
+	if logoutOtherDevices {
+		currentTokenHash := ""
+		if cookie, cookieErr := r.Cookie(refreshTokenCookieName); cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
+			currentTokenHash = hashToken(cookie.Value)
+		}
+
+		var result sql.Result
+		if currentTokenHash != "" {
+			result, err = tx.Exec(`
+				UPDATE auth_sessions
+				SET revoked_at = NOW(), revoked_reason = 'password_changed'
+				WHERE user_id = $1 AND revoked_at IS NULL AND refresh_token_hash <> $2
+			`, user.UserID, currentTokenHash)
+		} else {
+			result, err = tx.Exec(`
+				UPDATE auth_sessions
+				SET revoked_at = NOW(), revoked_reason = 'password_changed'
+				WHERE user_id = $1 AND revoked_at IS NULL
+			`, user.UserID)
+		}
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to revoke other sessions")
+			return
+		}
+		revokedSessions, _ = result.RowsAffected()
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to change password")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Password changed successfully",
+		"data": map[string]interface{}{
+			"logout_other_devices": logoutOtherDevices,
+			"revoked_sessions":     revokedSessions,
+		},
+	})
+}
+
 // GetInvitations returns pending invitations for a tenant
 func GetInvitations(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
@@ -440,3 +563,45 @@ func GetInvitations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// LogoutOtherDevices revokes all refresh sessions except current device session.
+func LogoutOtherDevices(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	currentTokenHash := ""
+	if cookie, err := r.Cookie(refreshTokenCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		currentTokenHash = hashToken(cookie.Value)
+	}
+
+	var result sql.Result
+	var err error
+	if currentTokenHash != "" {
+		result, err = database.DB.Exec(`
+			UPDATE auth_sessions
+			SET revoked_at = NOW(), revoked_reason = 'logout_other_devices'
+			WHERE user_id = $1 AND revoked_at IS NULL AND refresh_token_hash <> $2
+		`, user.UserID, currentTokenHash)
+	} else {
+		result, err = database.DB.Exec(`
+			UPDATE auth_sessions
+			SET revoked_at = NOW(), revoked_reason = 'logout_other_devices'
+			WHERE user_id = $1 AND revoked_at IS NULL
+		`, user.UserID)
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to logout other devices")
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Other devices logged out",
+		"data": map[string]interface{}{
+			"revoked_sessions": rowsAffected,
+		},
+	})
+}

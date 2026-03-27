@@ -85,6 +85,19 @@
   border-color: #667eea;
 }
 
+.remember-me-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.remember-me-row input {
+  width: auto;
+}
+
 /* Phone input row */
 .phone-input-row {
   display: flex;

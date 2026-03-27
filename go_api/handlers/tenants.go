@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
 	"poultry-farm-api/models"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -61,6 +61,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			SELECT id, parent_id, name, location, country_code, currency, 
 			       number_format, date_format, timezone, capacity, 
 			       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+			       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 			       created_at, updated_at, 0 as level
 			FROM tenants
 			WHERE id = $1
@@ -70,6 +71,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			SELECT t.id, t.parent_id, t.name, t.location, t.country_code, t.currency,
 			       t.number_format, t.date_format, t.timezone, t.capacity,
 			       t.age_category_chick_max_weeks, t.age_category_grower_max_weeks, t.age_category_prelayer_max_weeks,
+			       t.refresh_ttl_without_remember_hours, t.refresh_ttl_with_remember_days,
 			       t.created_at, t.updated_at, th.level + 1
 			FROM tenants t
 			INNER JOIN tenant_hierarchy th ON t.parent_id = th.id
@@ -77,6 +79,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		SELECT id, parent_id, name, location, country_code, currency, 
 		       number_format, date_format, timezone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
 		FROM tenant_hierarchy
 		ORDER BY level, name
@@ -94,12 +97,14 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		var parentID sql.NullString
 		var capacity sql.NullInt64
 		var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
+		var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 		err := rows.Scan(
 			&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 			&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
 			&tenant.DateFormat, &tenant.Timezone, &capacity,
 			&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+			&refreshWithoutRememberHours, &refreshWithRememberDays,
 			&tenant.CreatedAt, &tenant.UpdatedAt,
 		)
 		if err != nil {
@@ -125,6 +130,14 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		if preLayerMaxWeeks.Valid {
 			weeks := int(preLayerMaxWeeks.Int64)
 			tenant.AgeCategoryPreLayerMaxWeeks = &weeks
+		}
+		if refreshWithoutRememberHours.Valid {
+			hours := int(refreshWithoutRememberHours.Int64)
+			tenant.RefreshTTLWithoutRememberHours = &hours
+		}
+		if refreshWithRememberDays.Valid {
+			days := int(refreshWithRememberDays.Int64)
+			tenant.RefreshTTLWithRememberDays = &days
 		}
 
 		tenants = append(tenants, tenant)
@@ -169,11 +182,13 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	var parentID sql.NullString
 	var capacity sql.NullInt64
 	var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
+	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
 		SELECT id, parent_id, name, location, country_code, currency,
 		       number_format, date_format, timezone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
 		FROM tenants
 		WHERE id = $1
@@ -182,6 +197,7 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
 		&tenant.DateFormat, &tenant.Timezone, &capacity,
 		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+		&refreshWithoutRememberHours, &refreshWithRememberDays,
 		&tenant.CreatedAt, &tenant.UpdatedAt,
 	)
 
@@ -213,6 +229,14 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	if preLayerMaxWeeks.Valid {
 		weeks := int(preLayerMaxWeeks.Int64)
 		tenant.AgeCategoryPreLayerMaxWeeks = &weeks
+	}
+	if refreshWithoutRememberHours.Valid {
+		hours := int(refreshWithoutRememberHours.Int64)
+		tenant.RefreshTTLWithoutRememberHours = &hours
+	}
+	if refreshWithRememberDays.Valid {
+		days := int(refreshWithRememberDays.Int64)
+		tenant.RefreshTTLWithRememberDays = &days
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -264,16 +288,27 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if timezone == "" {
 		timezone = "Asia/Kolkata" // Default to IST
 	}
+	insertRefreshWithoutRememberHours := 12
+	if req.RefreshTTLWithoutRememberHours != nil && *req.RefreshTTLWithoutRememberHours > 0 {
+		insertRefreshWithoutRememberHours = *req.RefreshTTLWithoutRememberHours
+	}
+	insertRefreshWithRememberDays := 30
+	if req.RefreshTTLWithRememberDays != nil && *req.RefreshTTLWithRememberDays > 0 {
+		insertRefreshWithRememberDays = *req.RefreshTTLWithRememberDays
+	}
 
 	// Insert tenant
 	var tenantID uuid.UUID
 	err = database.DB.QueryRow(`
-		INSERT INTO tenants (parent_id, name, location, country_code, currency, 
-		                     number_format, date_format, timezone, capacity)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO tenants (
+			parent_id, name, location, country_code, currency, number_format, date_format, timezone, capacity,
+			refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id
 	`, req.ParentID, req.Name, req.Location, req.CountryCode, req.Currency,
-		req.NumberFormat, req.DateFormat, timezone, req.Capacity).Scan(&tenantID)
+		req.NumberFormat, req.DateFormat, timezone, req.Capacity,
+		insertRefreshWithoutRememberHours, insertRefreshWithRememberDays).Scan(&tenantID)
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create tenant")
@@ -285,11 +320,13 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var parentID sql.NullString
 	var capacity sql.NullInt64
 	var chickMaxWeeks, growerMaxWeeks, preLayerMaxWeeks sql.NullInt64
+	var refreshWithoutRememberHours, refreshWithRememberDays sql.NullInt64
 
 	err = database.DB.QueryRow(`
 		SELECT id, parent_id, name, location, country_code, currency,
 		       number_format, date_format, timezone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
+		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
 		FROM tenants
 		WHERE id = $1
@@ -298,6 +335,7 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
 		&tenant.DateFormat, &tenant.Timezone, &capacity,
 		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
+		&refreshWithoutRememberHours, &refreshWithRememberDays,
 		&tenant.CreatedAt, &tenant.UpdatedAt,
 	)
 
@@ -320,6 +358,14 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if preLayerMaxWeeks.Valid {
 		weeks := int(preLayerMaxWeeks.Int64)
 		tenant.AgeCategoryPreLayerMaxWeeks = &weeks
+	}
+	if refreshWithoutRememberHours.Valid {
+		hours := int(refreshWithoutRememberHours.Int64)
+		tenant.RefreshTTLWithoutRememberHours = &hours
+	}
+	if refreshWithRememberDays.Valid {
+		days := int(refreshWithRememberDays.Int64)
+		tenant.RefreshTTLWithRememberDays = &days
 	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
@@ -416,6 +462,24 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *req.Capacity)
 		argIndex++
 	}
+	if req.RefreshTTLWithoutRememberHours != nil {
+		if *req.RefreshTTLWithoutRememberHours <= 0 || *req.RefreshTTLWithoutRememberHours > 24*30 {
+			respondWithError(w, http.StatusBadRequest, "refresh_ttl_without_remember_hours must be between 1 and 720")
+			return
+		}
+		updates = append(updates, fmt.Sprintf("refresh_ttl_without_remember_hours = $%d", argIndex))
+		args = append(args, *req.RefreshTTLWithoutRememberHours)
+		argIndex++
+	}
+	if req.RefreshTTLWithRememberDays != nil {
+		if *req.RefreshTTLWithRememberDays <= 0 || *req.RefreshTTLWithRememberDays > 365 {
+			respondWithError(w, http.StatusBadRequest, "refresh_ttl_with_remember_days must be between 1 and 365")
+			return
+		}
+		updates = append(updates, fmt.Sprintf("refresh_ttl_with_remember_days = $%d", argIndex))
+		args = append(args, *req.RefreshTTLWithRememberDays)
+		argIndex++
+	}
 
 	if len(updates) == 0 {
 		respondWithError(w, http.StatusBadRequest, "No fields to update")
@@ -426,7 +490,7 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	args = append(args, tenantID)
 
 	query := fmt.Sprintf("UPDATE tenants SET %s WHERE id = $%d", strings.Join(updates, ", "), argIndex)
-	
+
 	_, err = database.DB.Exec(query, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update tenant")
@@ -469,7 +533,7 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	fmt.Printf("GetTenantItems: Successfully parsed tenant_id: %s\n", tenantID.String())	// Check if user has access to this tenant
+	fmt.Printf("GetTenantItems: Successfully parsed tenant_id: %s\n", tenantID.String()) // Check if user has access to this tenant
 	var hasAccess bool
 	err = database.DB.QueryRow(`
 		SELECT EXISTS(
@@ -486,7 +550,7 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 	// Get category filter if provided
 	category := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("category")))
 	fmt.Printf("GetTenantItems: Category from query: '%s' (after processing: '%s')\n", r.URL.Query().Get("category"), category)
-	
+
 	// Validate category if provided
 	if category != "" {
 		validCategories := map[string]bool{
@@ -500,7 +564,7 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Printf("GetTenantItems: Category validated: %s\n", category)
 	}
-	
+
 	var rows *sql.Rows
 	if category != "" {
 		// Cast category to category_enum type explicitly
@@ -525,7 +589,6 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-
 	var items []models.TenantItem
 	for rows.Next() {
 		var item models.TenantItem

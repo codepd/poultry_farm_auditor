@@ -4,6 +4,15 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
 const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+const refreshClient = axios.create({
+  baseURL: API_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,14 +27,61 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle token expiration
+let isRefreshing = false;
+let pendingRefreshResolvers: Array<(token: string | null) => void> = [];
+
+function notifyRefreshSubscribers(token: string | null) {
+  pendingRefreshResolvers.forEach((resolver) => resolver(token));
+  pendingRefreshResolvers = [];
+}
+
+// Handle token expiration with refresh flow
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+  async (error) => {
+    const originalRequest: any = error.config || {};
+    const isLoginRoute = originalRequest?.url?.includes('/auth/login') || originalRequest?.url?.includes('/auth/verify-otp');
+    const isRefreshRoute = originalRequest?.url?.includes('/auth/refresh');
+
+    if (error.response?.status === 401 && !originalRequest?._retry && !isLoginRoute && !isRefreshRoute) {
+      originalRequest._retry = true;
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          pendingRefreshResolvers.push((newToken) => {
+            if (!newToken) {
+              reject(error);
+              return;
+            }
+            originalRequest.headers = originalRequest.headers || {};
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(api(originalRequest));
+          });
+        });
+      }
+
+      isRefreshing = true;
+      try {
+        const refreshResponse = await refreshClient.post<{ success: boolean; data: { token: string } }>('/auth/refresh');
+        const newToken = refreshResponse.data?.data?.token;
+        if (!newToken) {
+          throw new Error('No token in refresh response');
+        }
+        localStorage.setItem('token', newToken);
+        notifyRefreshSubscribers(newToken);
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        notifyRefreshSubscribers(null);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('currentTenant');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
     }
     return Promise.reject(error);
   }
@@ -60,6 +116,8 @@ export interface Tenant {
   age_category_chick_max_weeks?: number;
   age_category_grower_max_weeks?: number;
   age_category_prelayer_max_weeks?: number;
+  refresh_ttl_without_remember_hours?: number;
+  refresh_ttl_with_remember_days?: number;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +125,7 @@ export interface Tenant {
 export interface LoginRequest {
   email: string;
   password: string;
+  remember_me?: boolean;
 }
 
 export interface LoginResponse {
@@ -172,6 +231,7 @@ export interface SendOTPResponse {
 export interface VerifyOTPRequest {
   phone: string;
   code: string;
+  remember_me?: boolean;
 }
 
 export interface CountryCodeInfo {
@@ -192,6 +252,13 @@ export const authAPI = {
   verifyOTP: async (data: VerifyOTPRequest): Promise<LoginResponse> => {
     const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/verify-otp', data);
     return response.data.data || response.data as any;
+  },
+  refreshToken: async (): Promise<string> => {
+    const response = await refreshClient.post<{ success: boolean; data: { token: string } }>('/auth/refresh');
+    return response.data?.data?.token;
+  },
+  logout: async (): Promise<void> => {
+    await refreshClient.post('/auth/logout');
   },
   getCountryCodes: async (): Promise<CountryCodeInfo[]> => {
     const response = await api.get<{ success: boolean; data: CountryCodeInfo[] }>('/auth/country-codes');
@@ -409,6 +476,14 @@ export const usersAPI = {
   },
   updateProfile: async (data: { full_name: string }) => {
     const response = await api.put<{ success: boolean; message: string; data: any }>('/users/profile', data);
+    return response.data;
+  },
+  changePassword: async (data: { current_password?: string; new_password: string; logout_other_devices?: boolean }) => {
+    const response = await api.post<{ success: boolean; message: string; data: { revoked_sessions: number } }>('/users/change-password', data);
+    return response.data;
+  },
+  logoutOtherDevices: async () => {
+    const response = await api.post<{ success: boolean; message: string; data: { revoked_sessions: number } }>('/users/logout-other-devices');
     return response.data;
   },
 };

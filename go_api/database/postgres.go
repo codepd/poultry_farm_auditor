@@ -56,6 +56,25 @@ func runMigrations() {
 			expires_at TIMESTAMP NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS refresh_ttl_without_remember_hours INTEGER DEFAULT 12",
+		"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS refresh_ttl_with_remember_days INTEGER DEFAULT 30",
+		`CREATE TABLE IF NOT EXISTS auth_sessions (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			refresh_token_hash VARCHAR(64) UNIQUE NOT NULL,
+			remember_me BOOLEAN NOT NULL DEFAULT FALSE,
+			user_agent TEXT,
+			ip_address TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at TIMESTAMP,
+			expires_at TIMESTAMP NOT NULL,
+			revoked_at TIMESTAMP,
+			revoked_reason TEXT
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_tenant_id ON auth_sessions(tenant_id)",
+		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)",
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

@@ -23,6 +23,7 @@ const LoginPage: React.FC = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpCountdown, setOtpCountdown] = useState(0);
+  const [rememberMe, setRememberMe] = useState(true);
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -49,7 +50,7 @@ const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, rememberMe);
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed');
@@ -86,7 +87,7 @@ const LoginPage: React.FC = () => {
     }
     setLoading(true);
     try {
-      await loginWithOTP(fullPhone, otpCode);
+      await loginWithOTP(fullPhone, otpCode, rememberMe);
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid OTP');
@@ -176,6 +177,15 @@ const LoginPage: React.FC = () => {
                 placeholder="Enter password"
               />
             </div>
+            <label className="remember-me-row">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Remember me</span>
+            </label>
             <button type="submit" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
@@ -250,6 +260,15 @@ const LoginPage: React.FC = () => {
                 autoComplete="one-time-code"
               />
             </div>
+            <label className="remember-me-row">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Remember me</span>
+            </label>
             <button type="submit" disabled={loading || otpCode.length < 6}>
               {loading ? 'Verifying...' : 'Verify & Sign In'}
             </button>

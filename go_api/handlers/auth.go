@@ -6,25 +6,25 @@ import (
 	"net/http"
 	"poultry-farm-api/config"
 	"poultry-farm-api/database"
-	"poultry-farm-api/middleware"
+	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Email      string `json:"email" binding:"required"`
+	Password   string `json:"password" binding:"required"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 type LoginResponse struct {
-	Token     string `json:"token"`
-	UserID    int    `json:"user_id"`
-	Email     string `json:"email"`
-	FullName  string `json:"full_name"`
-	Tenants   []TenantInfo `json:"tenants"`
+	Token    string       `json:"token"`
+	UserID   int          `json:"user_id"`
+	Email    string       `json:"email"`
+	FullName string       `json:"full_name"`
+	Tenants  []TenantInfo `json:"tenants"`
 }
 
 type TenantInfo struct {
@@ -105,25 +105,32 @@ func Login(cfg *config.Config) http.HandlerFunc {
 
 		// Use first tenant for token (user can switch tenants later)
 		primaryTenant := tenants[0]
-
-		// Generate JWT token
-		claims := &middleware.Claims{
-			UserID:   userID,
-			Email:    req.Email,
-			TenantID: primaryTenant.TenantID.String(),
-			Role:     primaryTenant.Role,
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-			},
+		noRememberTTL, rememberTTL := getTenantRefreshDurations(primaryTenant.TenantID)
+		refreshTTL := noRememberTTL
+		if req.RememberMe {
+			refreshTTL = rememberTTL
 		}
+		refreshExpiresAt := time.Now().UTC().Add(refreshTTL)
 
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+		tokenString, err := issueAccessToken(cfg, userID, req.Email, primaryTenant.TenantID, primaryTenant.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 			return
 		}
+
+		refreshToken, err := createRefreshSession(
+			userID,
+			primaryTenant.TenantID,
+			req.RememberMe,
+			refreshExpiresAt,
+			strings.TrimSpace(r.UserAgent()),
+			strings.TrimSpace(r.RemoteAddr),
+		)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to create session")
+			return
+		}
+		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
@@ -149,4 +156,3 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(payload)
 }
-
