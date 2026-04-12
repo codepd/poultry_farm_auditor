@@ -408,6 +408,74 @@
   background: #e0e0e0;
 }
 
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+
+  .page-header h1 {
+    font-size: 1.2rem;
+  }
+
+  .add-btn {
+    width: 100%;
+  }
+
+  .add-batch-form {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .submit-btn,
+  .cancel-btn {
+    width: 100%;
+  }
+
+  .batches-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .batch-card {
+    padding: 1rem;
+  }
+
+  .batch-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .batch-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .detail-item {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .batch-actions-bottom {
+    flex-direction: column;
+  }
+
+  .modal-content {
+    width: 94%;
+    padding: 1rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.15rem;
+  }
+}
 
 
 

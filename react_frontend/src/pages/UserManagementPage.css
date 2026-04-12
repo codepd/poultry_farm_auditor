@@ -303,3 +303,54 @@
   color: #999;
   margin-top: 0.2rem;
 }
+
+@media (max-width: 768px) {
+  .users-page .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .users-page .add-btn {
+    width: 100%;
+  }
+
+  .invite-form-card {
+    padding: 1rem;
+  }
+
+  .invite-mode-tabs {
+    width: 100%;
+  }
+
+  .invite-tab {
+    flex: 1;
+  }
+
+  .phone-row {
+    flex-direction: column;
+  }
+
+  .phone-row .country-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .submit-btn {
+    width: 100%;
+  }
+
+  .member-card,
+  .invitation-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .member-meta {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}

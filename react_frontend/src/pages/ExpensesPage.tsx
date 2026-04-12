@@ -179,6 +179,8 @@ const ExpensesPage: React.FC = () => {
                   type="date"
                   value={formData.transaction_date}
                   onChange={(e) => setFormData({ ...formData, transaction_date: e.target.value })}
+                  title="Expense date"
+                  aria-label="Expense date"
                   required
                 />
               </div>
@@ -196,6 +198,8 @@ const ExpensesPage: React.FC = () => {
                   }}
                   required
                   className="expense-select"
+                  title="Expense type"
+                  aria-label="Expense type"
                 >
                   <option value="">-- Select Expense Type --</option>
                   {COMMON_EXPENSES.map((expense) => (
@@ -206,7 +210,7 @@ const ExpensesPage: React.FC = () => {
                   <option value={OTHER_OPTION}>{OTHER_OPTION}</option>
                 </select>
                 {formData.selected_expense === OTHER_OPTION && (
-                  <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                  <div className="form-group other-expense-description-group">
                     <label>Description</label>
                 <input
                   type="text"
@@ -225,6 +229,8 @@ const ExpensesPage: React.FC = () => {
                   step="0.01"
                   value={formData.amount || ''}
                   onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                  title="Expense amount"
+                  aria-label="Expense amount"
                   required
                 />
               </div>
@@ -325,33 +331,54 @@ const ExpensesPage: React.FC = () => {
       ) : expenses.length === 0 ? (
         <div className="no-data">No expenses found. Add your first expense above.</div>
       ) : (
-        <div className="expenses-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Item/Description</th>
-                <th>Amount</th>
-                <th>Notes</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((expense) => (
-                <tr key={expense.id}>
-                  <td>{new Date(expense.transaction_date).toLocaleDateString()}</td>
-                  <td>{expense.item_name || '-'}</td>
-                  <td>₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  <td>{expense.notes || '-'}</td>
-                  <td>
-                    <span className={`status-badge status-${expense.status.toLowerCase()}`}>
-                      {expense.status}
-                    </span>
-                  </td>
+        <div className="expenses-results">
+          <div className="expenses-mobile-list">
+            {expenses.map((expense) => (
+              <div key={expense.id} className="expense-mobile-card">
+                <div className="expense-mobile-top">
+                  <div className="expense-mobile-item">{expense.item_name || '-'}</div>
+                  <span className={`status-badge status-${expense.status.toLowerCase()}`}>
+                    {expense.status}
+                  </span>
+                </div>
+                <div className="expense-mobile-amount">
+                  ₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="expense-mobile-meta">
+                  <span>{new Date(expense.transaction_date).toLocaleDateString()}</span>
+                  {expense.notes && <span className="expense-mobile-notes">{expense.notes}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="expenses-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Item/Description</th>
+                  <th>Amount</th>
+                  <th>Notes</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {expenses.map((expense) => (
+                  <tr key={expense.id}>
+                    <td>{new Date(expense.transaction_date).toLocaleDateString()}</td>
+                    <td>{expense.item_name || '-'}</td>
+                    <td>₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td>{expense.notes || '-'}</td>
+                    <td>
+                      <span className={`status-badge status-${expense.status.toLowerCase()}`}>
+                        {expense.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

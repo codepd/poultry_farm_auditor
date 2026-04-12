@@ -134,6 +134,17 @@ const PriceHistoryPage: React.FC = () => {
     }
   };
 
+  const formatPriceDate = (price: PriceHistory) => {
+    if (price.id === 0 && price.price_date.endsWith('-01')) {
+      return new Date(price.price_date).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    }
+    return new Date(price.price_date).toLocaleDateString();
+  };
+
+  const formatCreatedAt = (price: PriceHistory) => (
+    price.id === 0 ? 'Monthly Average' : new Date(price.created_at).toLocaleString()
+  );
+
   // Group prices by type and item
   const groupedPrices = (prices || []).reduce((acc, price) => {
     if (!price) return acc;
@@ -239,6 +250,8 @@ const PriceHistoryPage: React.FC = () => {
                   type="date"
                   value={formData.price_date}
                   onChange={(e) => setFormData({ ...formData, price_date: e.target.value })}
+                  title="Price date"
+                  aria-label="Price date"
                   required
                 />
               </div>
@@ -247,6 +260,8 @@ const PriceHistoryPage: React.FC = () => {
                 <select
                   value={formData.price_type}
                   onChange={(e) => setFormData({ ...formData, price_type: e.target.value })}
+                  title="Price type"
+                  aria-label="Price type"
                   required
                 >
                   <option value="EGG">Egg</option>
@@ -270,6 +285,8 @@ const PriceHistoryPage: React.FC = () => {
                   step="0.01"
                   value={formData.price || ''}
                   onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                  title="Price amount"
+                  aria-label="Price amount"
                   required
                 />
               </div>
@@ -387,6 +404,8 @@ const PriceHistoryPage: React.FC = () => {
                     value={selectedYear || ''}
                     onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                     className="year-select"
+                    title="Select year"
+                    aria-label="Select year"
                   >
                     <option value="">All Years</option>
                     {availableYears.map(year => (
@@ -492,6 +511,9 @@ const PriceHistoryPage: React.FC = () => {
                 .filter(([key]) => key.startsWith('EGG-'))
                 .map(([key, items]) => {
                   const [, itemName] = key.split('-');
+                  const sortedItems = items
+                    .slice()
+                    .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime());
                   return (
                     <div key={key} className="price-group">
                       <h3>
@@ -500,34 +522,64 @@ const PriceHistoryPage: React.FC = () => {
                           <span className="monthly-avg-badge">(Monthly Averages)</span>
                         )}
                       </h3>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Date</th>
-                            <th>Price (₹)</th>
-                            <th>Created At</th>
-                            {canEdit && <th>Actions</th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items
-                            .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime())
-                            .map((price, idx) => {
-                              const dateDisplay = price.price_date.endsWith('-01')
-                                ? new Date(price.price_date).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-                                : new Date(price.price_date).toLocaleDateString();
+                      <div className="price-mobile-cards">
+                        {sortedItems.map((price, idx) => {
+                          const rowKey = price.id || `calc-${idx}-${price.price_date}`;
+                          const isCalculated = price.id === 0;
+                          return (
+                            <div key={rowKey} className="price-mobile-card">
+                              <div className="price-mobile-header">
+                                <span className="price-mobile-date">{formatPriceDate(price)}</span>
+                                <span className="price-mobile-value">₹{price.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                              </div>
+                              <div className="price-mobile-created">
+                                {formatCreatedAt(price)}
+                              </div>
+                              {canEdit && !isCalculated && (
+                                <div className="price-mobile-actions">
+                                  <button
+                                    onClick={() => handleEdit(price)}
+                                    className="edit-btn"
+                                    title="Edit"
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(price.id)}
+                                    className="delete-btn"
+                                    title="Delete"
+                                  >
+                                    🗑️ Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="price-table-wrapper">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Price (₹)</th>
+                              <th>Created At</th>
+                              {canEdit && <th>Actions</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedItems.map((price, idx) => {
                               const rowKey = price.id || `calc-${idx}-${price.price_date}`;
                               const isCalculated = price.id === 0;
-
                               return (
                                 <tr key={rowKey}>
-                                  <td>{dateDisplay}</td>
+                                  <td>{formatPriceDate(price)}</td>
                                   <td>₹{price.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                                   <td>
                                     {isCalculated ? (
                                       <span className="calculated-badge">Monthly Average</span>
                                     ) : (
-                                      new Date(price.created_at).toLocaleString()
+                                      formatCreatedAt(price)
                                     )}
                                   </td>
                                   {canEdit && (
@@ -555,8 +607,9 @@ const PriceHistoryPage: React.FC = () => {
                                 </tr>
                               );
                             })}
-                        </tbody>
-                      </table>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   );
                 })}
@@ -571,26 +624,57 @@ const PriceHistoryPage: React.FC = () => {
                 .filter(([key]) => key.startsWith('FEED-'))
                 .map(([key, items]) => {
                   const [, itemName] = key.split('-');
+                  const sortedItems = items
+                    .slice()
+                    .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime());
                   return (
                     <div key={key} className="price-group">
                       <h3>{itemName}</h3>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Date</th>
-                            <th>Price (₹)</th>
-                            <th>Created At</th>
-                            {canEdit && <th>Actions</th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items
-                            .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime())
-                            .map((price) => (
+                      <div className="price-mobile-cards">
+                        {sortedItems.map((price) => (
+                          <div key={price.id} className="price-mobile-card">
+                            <div className="price-mobile-header">
+                              <span className="price-mobile-date">{formatPriceDate(price)}</span>
+                              <span className="price-mobile-value">₹{price.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="price-mobile-created">{formatCreatedAt(price)}</div>
+                            {canEdit && (
+                              <div className="price-mobile-actions">
+                                <button
+                                  onClick={() => handleEdit(price)}
+                                  className="edit-btn"
+                                  title="Edit"
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(price.id)}
+                                  className="delete-btn"
+                                  title="Delete"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="price-table-wrapper">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Price (₹)</th>
+                              <th>Created At</th>
+                              {canEdit && <th>Actions</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedItems.map((price) => (
                               <tr key={price.id}>
-                                <td>{new Date(price.price_date).toLocaleDateString()}</td>
+                                <td>{formatPriceDate(price)}</td>
                                 <td>₹{price.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                                <td>{new Date(price.created_at).toLocaleString()}</td>
+                                <td>{formatCreatedAt(price)}</td>
                                 {canEdit && (
                                   <td>
                                     <div className="action-buttons">
@@ -613,8 +697,9 @@ const PriceHistoryPage: React.FC = () => {
                                 )}
                               </tr>
                             ))}
-                        </tbody>
-                      </table>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   );
                 })}

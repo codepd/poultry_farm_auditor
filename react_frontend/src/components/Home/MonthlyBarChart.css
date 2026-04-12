@@ -173,3 +173,37 @@
 .recharts-bar-rectangle:hover {
   opacity: 0.8;
 }
+
+@media (max-width: 768px) {
+  .monthly-bar-chart {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .chart-header {
+    margin-bottom: 0.75rem;
+  }
+
+  .chart-header h3 {
+    font-size: 1rem;
+  }
+
+  .chart-subtitle {
+    font-size: 0.8rem;
+  }
+
+  .chart-summary {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    gap: 0.6rem;
+  }
+
+  .summary-item {
+    min-width: calc(50% - 0.5rem);
+    gap: 0.25rem;
+  }
+
+  .summary-value {
+    font-size: 1.1rem;
+  }
+}

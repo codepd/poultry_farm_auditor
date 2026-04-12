@@ -244,6 +244,50 @@
   border-left: 4px solid #ab47bc;
 }
 
+@media (max-width: 768px) {
+  .hen-age-display {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .hen-age-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .hen-age-header h2 {
+    font-size: 1rem;
+  }
+
+  .category-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .category-card {
+    padding: 0.75rem;
+  }
+
+  .category-count {
+    font-size: 1.55rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .category-label {
+    font-size: 0.8rem;
+  }
+
+  .category-percentage {
+    font-size: 0.75rem;
+  }
+
+  .batches-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
 
 

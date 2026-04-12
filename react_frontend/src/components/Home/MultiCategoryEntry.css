@@ -124,4 +124,38 @@
   text-align: center;
 }
 
+@media (max-width: 768px) {
+  .multi-category-entry {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .multi-category-entry h2 {
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+  }
+
+  .form-header {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .entry-row {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+    padding: 0.85rem;
+  }
+
+  .actions {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .add-btn,
+  .submit-btn,
+  .remove-btn {
+    width: 100%;
+  }
+}
 

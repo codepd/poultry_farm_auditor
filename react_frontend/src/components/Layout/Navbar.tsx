@@ -12,11 +12,11 @@ const Navbar: React.FC = () => {
   const canManageUsers = currentTenant && MANAGE_ROLES.includes(currentTenant.role);
 
   const navItems = [
-    { path: '/', label: 'Home', icon: '🏠' },
-    { path: '/expenses', label: 'Expenses', icon: '💰' },
-    { path: '/hen-batches', label: 'Hen Batches', icon: '🐔' },
-    { path: '/price-history', label: 'Price History', icon: '📈' },
-    ...(canManageUsers ? [{ path: '/team', label: 'Team', icon: '👥' }] : []),
+    { path: '/', label: 'Home', mobileLabel: 'Home', icon: '🏠' },
+    { path: '/expenses', label: 'Expenses', mobileLabel: 'Expenses', icon: '💰' },
+    { path: '/hen-batches', label: 'Hen Batches', mobileLabel: 'Batches', icon: '🐔' },
+    { path: '/price-history', label: 'Price History', mobileLabel: 'Prices', icon: '📈' },
+    ...(canManageUsers ? [{ path: '/team', label: 'Team', mobileLabel: 'Team', icon: '👥' }] : []),
   ];
 
   return (
@@ -29,7 +29,8 @@ const Navbar: React.FC = () => {
               className={`nav-link ${location.pathname === item.path ? 'active' : ''}`}
             >
               <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
+              <span className="nav-label nav-label-desktop">{item.label}</span>
+              <span className="nav-label nav-label-mobile">{item.mobileLabel}</span>
             </Link>
           </li>
         ))}

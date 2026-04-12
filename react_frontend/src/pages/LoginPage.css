@@ -221,3 +221,30 @@
   margin-bottom: 1rem;
   text-align: center;
 }
+
+@media (max-width: 768px) {
+  .login-page {
+    align-items: flex-start;
+    padding: 1rem 0.75rem;
+  }
+
+  .login-container {
+    padding: 1.25rem 1rem;
+    max-width: 100%;
+  }
+
+  .login-tab {
+    min-height: 44px;
+    font-size: 0.95rem;
+  }
+
+  .phone-input-row {
+    gap: 0.4rem;
+  }
+
+  .country-code-select {
+    width: 92px;
+    max-width: 92px;
+    font-size: 0.85rem;
+  }
+}

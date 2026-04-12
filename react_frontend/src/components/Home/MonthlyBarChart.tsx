@@ -36,6 +36,13 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
   const [data, setData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -149,10 +156,10 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
         <div className="chart-subtitle">Click on any month to see detailed information</div>
       </div>
       <div className="chart-wrapper">
-        <ResponsiveContainer width="100%" height={400}>
+        <ResponsiveContainer width="100%" height={isMobile ? 280 : 400}>
           <BarChart
             data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            margin={isMobile ? { top: 8, right: 8, left: 0, bottom: 44 } : { top: 20, right: 30, left: 20, bottom: 60 }}
             onClick={(data: any) => {
               if (data && data.activePayload && data.activePayload[0]) {
                 const item = data.activePayload[0].payload;
@@ -163,20 +170,20 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis
               dataKey="monthLabel"
-              angle={-45}
+              angle={isMobile ? -35 : -45}
               textAnchor="end"
-              height={80}
-              tick={{ fontSize: 12, fill: '#666' }}
+              height={isMobile ? 56 : 80}
+              tick={{ fontSize: isMobile ? 10 : 12, fill: '#666' }}
               interval={0}
             />
             <YAxis
-              tick={{ fontSize: 12, fill: '#666' }}
+              tick={{ fontSize: isMobile ? 10 : 12, fill: '#666' }}
               tickFormatter={formatYAxis}
-              label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
+              label={isMobile ? undefined : { value: 'Amount (₹)', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend
-              wrapperStyle={{ paddingTop: '20px' }}
+              wrapperStyle={{ paddingTop: isMobile ? '6px' : '20px', fontSize: isMobile ? '11px' : '13px' }}
               iconType="square"
             />
             <Bar

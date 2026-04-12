@@ -207,13 +207,13 @@ const LoginPage: React.FC = () => {
                   {countryCodes.length > 0 ? (
                     countryCodes.map(cc => (
                       <option key={cc.country_code} value={cc.country_code}>
-                        {cc.country_code} {cc.country_name}
+                        {cc.country_code}
                       </option>
                     ))
                   ) : (
                     <>
-                      <option value="+91">+91 India</option>
-                      <option value="+1">+1 United States</option>
+                      <option value="+91">+91</option>
+                      <option value="+1">+1</option>
                     </>
                   )}
                 </select>
