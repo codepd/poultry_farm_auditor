@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   create-semver-tag:
@@ -72,6 +73,7 @@ jobs:
           echo "Computed tag: ${NEW_TAG}"
 
       - name: Create and push tag
+        id: create_tag
         env:
           NEW_TAG: ${{ steps.semver.outputs.new_tag }}
         run: |
@@ -84,3 +86,11 @@ jobs:
 
           git tag "$NEW_TAG"
           git push origin "$NEW_TAG"
+
+      - name: Trigger backend build/deploy for new tag
+        env:
+          NEW_TAG: ${{ steps.semver.outputs.new_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run "Build and Push Go API Image" --ref "$NEW_TAG"
