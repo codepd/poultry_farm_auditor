@@ -23,6 +23,8 @@ interface MonthlyData {
   medicine_expense: number;
   labor_expense: number;
   other_expense: number;
+  total_discounts: number;
+  total_tds: number;
   total_expense: number;
   net_profit: number;
 }
@@ -115,7 +117,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
             {data.monthFullName} {data.year}
           </div>
           <div className="tooltip-item sales">
-            <span className="tooltip-label">Sales (Income):</span>
+            <span className="tooltip-label">Sales (Egg Income):</span>
             <span className="tooltip-value">₹{data.sales.toLocaleString('en-IN')}</span>
           </div>
           <div className="tooltip-item expense">
@@ -127,9 +129,11 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
             <div>• Medicine: ₹{data.medicine_expense.toLocaleString('en-IN')}</div>
             <div>• Labor: ₹{data.labor_expense.toLocaleString('en-IN')}</div>
             <div>• Other: ₹{data.other_expense.toLocaleString('en-IN')}</div>
+            <div>• TDS: ₹{(data.total_tds || 0).toLocaleString('en-IN')}</div>
+            <div>• Discounts: ₹{(data.total_discounts || 0).toLocaleString('en-IN')}</div>
           </div>
           <div className={`tooltip-item ${data.net_profit >= 0 ? 'profit' : 'loss'}`}>
-            <span className="tooltip-label">Net Profit:</span>
+            <span className="tooltip-label">Net Profit (after discounts):</span>
             <span className="tooltip-value">₹{data.net_profit.toLocaleString('en-IN')}</span>
           </div>
           <div className="tooltip-note">Click to see full details</div>

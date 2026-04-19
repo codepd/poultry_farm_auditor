@@ -1271,6 +1271,8 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		MedicineExpense float64 `json:"medicine_expense"`
 		LaborExpense    float64 `json:"labor_expense"`
 		OtherExpense    float64 `json:"other_expense"`
+		TotalDiscounts  float64 `json:"total_discounts"`
+		TotalTDS        float64 `json:"total_tds"`
 		TotalExpense    float64 `json:"total_expense"`
 		NetProfit       float64 `json:"net_profit"`
 	}
@@ -1283,7 +1285,7 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		year := date.Year()
 		month := int(date.Month())
 
-		var sales, feedExpense, medicineExpense, laborExpense, otherExpense, netProfit float64
+		var sales, feedExpense, medicineExpense, laborExpense, otherExpense, totalDiscounts, totalTDS, netProfit float64
 
 		// Get sales (egg sales)
 		database.DB.QueryRow(`
@@ -1436,8 +1438,29 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 				AND NOT (UPPER(item_name) LIKE '%LABOR%')
 		`, tenantID, year, month).Scan(&otherExpense)
 
-		// Calculate net profit: Sales - Total Expenses
-		netProfit = sales - (feedExpense + medicineExpense + laborExpense + otherExpense)
+		// Get discounts (income - add to net profit)
+		database.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE tenant_id = $1
+				AND EXTRACT(YEAR FROM transaction_date) = $2
+				AND EXTRACT(MONTH FROM transaction_date) = $3
+				AND transaction_type = 'DISCOUNT'
+		`, tenantID, year, month).Scan(&totalDiscounts)
+
+		// Get TDS (expense - deduct from net profit)
+		database.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE tenant_id = $1
+				AND EXTRACT(YEAR FROM transaction_date) = $2
+				AND EXTRACT(MONTH FROM transaction_date) = $3
+				AND transaction_type = 'TDS'
+		`, tenantID, year, month).Scan(&totalTDS)
+
+		// Calculate net profit after discounts:
+		// Egg sales + discounts - (feed + medicine + labor + other + TDS)
+		netProfit = (sales + totalDiscounts) - (feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS)
 
 		// Check sensitive data
 		shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
@@ -1454,7 +1477,7 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 			netProfit = 0
 		}
 
-		totalExpense := feedExpense + medicineExpense + laborExpense + otherExpense
+		totalExpense := feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS
 
 		monthlyData = append(monthlyData, MonthlyData{
 			Year:            year,
@@ -1465,6 +1488,8 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 			MedicineExpense: medicineExpense,
 			LaborExpense:    laborExpense,
 			OtherExpense:    otherExpense,
+			TotalDiscounts:  totalDiscounts,
+			TotalTDS:        totalTDS,
 			TotalExpense:    totalExpense,
 			NetProfit:       netProfit,
 		})
