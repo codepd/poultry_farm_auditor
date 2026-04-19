@@ -93,4 +93,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh workflow run "Build and Push Go API Image" --ref "$NEW_TAG"
+          gh workflow run "Build and Push Go API Image" --ref "main" -f image_tag="$NEW_TAG"

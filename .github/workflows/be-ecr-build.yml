@@ -1,10 +1,12 @@
 name: Build and Push Go API Image
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Immutable image tag to build/deploy (e.g., v1.2.3)"
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -47,7 +49,9 @@ jobs:
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           IMAGE_URI="$REGISTRY/${{ env.ECR_REPO }}"
 
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          if [[ -n "${{ inputs.image_tag }}" ]]; then
+            IMAGE_TAG="${{ inputs.image_tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             IMAGE_TAG="${GITHUB_REF_NAME}"
           else
             IMAGE_TAG="${GITHUB_SHA::12}"
