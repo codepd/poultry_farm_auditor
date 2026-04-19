@@ -1,10 +1,12 @@
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = var.aws_profile
 }
 
 provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
+  alias   = "us_east_1"
+  region  = "us-east-1"
+  profile = var.aws_profile
 }
 
 module "vpc" {
@@ -47,8 +49,8 @@ module "rds" {
 module "s3_cdn" {
   source          = "../../../modules/aws/s3_cdn"
   bucket_name     = var.frontend_bucket_name
-  domain_name     = "" # Empty = use CloudFront default domain
-  route53_zone_id = "" # Not needed without custom domain
+  domain_name     = var.frontend_domain_name
+  route53_zone_id = var.frontend_domain_name != "" ? data.aws_route53_zone.api[0].zone_id : ""
   tags            = var.tags
   providers = {
     aws           = aws

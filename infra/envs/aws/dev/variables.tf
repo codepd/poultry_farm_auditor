@@ -3,6 +3,11 @@ variable "aws_region" {
   default = "ap-south-1"
 }
 
+variable "aws_profile" {
+  type    = string
+  default = "AdminAccess-Pradeep"
+}
+
 variable "name" {
   type    = string
   default = "poultry-dev"
@@ -96,8 +101,8 @@ variable "alb_dns_name" {
 
 variable "alb_hosted_zone_id" {
   type        = string
-  default     = "Z1D633PJN98FT9" # ALB hosted zone ID for ap-south-1
-  description = "ALB hosted zone ID for the region (constant for all ALBs in ap-south-1)"
+  default     = ""
+  description = "ALB CanonicalHostedZoneId (per-ALB, get with: aws elbv2 describe-load-balancers --query 'LoadBalancers[?contains(DNSName,\"goapiing\")].CanonicalHostedZoneId' --output text)"
 }
 
 variable "tags" {
