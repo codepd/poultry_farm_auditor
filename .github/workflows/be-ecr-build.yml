@@ -2,12 +2,8 @@ name: Build and Push Go API Image
 
 on:
   push:
-    branches: [main]
     tags:
       - "v*"
-    paths:
-      - "go_api/**"
-      - ".github/workflows/be-ecr-build.yml"
   workflow_dispatch:
 
 permissions:

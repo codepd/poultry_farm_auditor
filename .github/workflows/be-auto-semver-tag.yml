@@ -1,0 +1,86 @@
+name: Auto Tag Backend Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "go_api/**"
+      - ".github/workflows/be-ecr-build.yml"
+      - ".github/workflows/be-auto-semver-tag.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  create-semver-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next semantic version
+        id: semver
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LAST_TAG="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1 || true)"
+          if [[ -z "${LAST_TAG}" ]]; then
+            LAST_TAG="v0.0.0"
+            RANGE=""
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          if [[ -z "${RANGE}" ]]; then
+            COMMITS="$(git log --pretty=format:'%s%n%b')"
+          else
+            COMMITS="$(git log "${RANGE}" --pretty=format:'%s%n%b')"
+          fi
+
+          MAJOR=0
+          MINOR=0
+          if echo "${COMMITS}" | grep -Eq 'BREAKING CHANGE|^[a-zA-Z0-9_-]+(\([^)]+\))?!:'; then
+            MAJOR=1
+          elif echo "${COMMITS}" | grep -Eq '^feat(\([^)]+\))?:'; then
+            MINOR=1
+          fi
+
+          VERSION="${LAST_TAG#v}"
+          IFS='.' read -r X Y Z <<< "${VERSION}"
+          X="${X:-0}"
+          Y="${Y:-0}"
+          Z="${Z:-0}"
+
+          if [[ "${MAJOR}" -eq 1 ]]; then
+            X=$((X + 1))
+            Y=0
+            Z=0
+          elif [[ "${MINOR}" -eq 1 ]]; then
+            Y=$((Y + 1))
+            Z=0
+          else
+            Z=$((Z + 1))
+          fi
+
+          NEW_TAG="v${X}.${Y}.${Z}"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Computed tag: ${NEW_TAG}"
+
+      - name: Create and push tag
+        env:
+          NEW_TAG: ${{ steps.semver.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+
+          if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEW_TAG already exists. Skipping."
+            exit 0
+          fi
+
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
