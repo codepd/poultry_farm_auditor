@@ -123,6 +123,8 @@ func main() {
 	// Analytics routes
 	protectedRouter.HandleFunc("/analytics/enhanced-monthly-summary", handlers.GetEnhancedMonthlySummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/all-years-summary", handlers.GetAllYearsSummary).Methods("GET")
+	protectedRouter.HandleFunc("/analytics/yearly-period-summary", handlers.GetYearlyPeriodSummary).Methods("GET")
+	protectedRouter.HandleFunc("/analytics/date-range-summary", handlers.GetDateRangeSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/last-12-months", handlers.GetLast12MonthsSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/monthly-breakdown", handlers.GetMonthlyBreakdown).Methods("GET")
 

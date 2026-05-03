@@ -22,6 +22,362 @@ func sanitizeFloat(v float64) float64 {
 	return v
 }
 
+type PeriodSummary struct {
+	PeriodType              string  `json:"period_type"`
+	PeriodLabel             string  `json:"period_label"`
+	Year                    int     `json:"year"`
+	PeriodStart             string  `json:"period_start"`
+	PeriodEnd               string  `json:"period_end"`
+	TotalSales              float64 `json:"total_sales"`
+	TotalExpense            float64 `json:"total_expense"`
+	NetProfit               float64 `json:"net_profit"`
+	FinancialYearStartMonth int     `json:"financial_year_start_month,omitempty"`
+}
+
+func getTenantFinancialYearStartMonth(tenantID uuid.UUID) int {
+	startMonth := 4
+	_ = database.DB.QueryRow(`
+		SELECT COALESCE(financial_year_start_month, 4)
+		FROM tenants
+		WHERE id = $1
+	`, tenantID).Scan(&startMonth)
+	if startMonth < 1 || startMonth > 12 {
+		startMonth = 4
+	}
+	return startMonth
+}
+
+func calculateSummaryForDateRange(tenantID uuid.UUID, startDate, endDate time.Time) (float64, float64, float64, error) {
+	var eggSales, discounts, otherIncome float64
+	var feedExpense, medicineExpense, otherExpense, tdsExpense float64
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND category = 'EGG'
+		  AND transaction_type = 'SALE'
+	`, tenantID, startDate, endDate).Scan(&eggSales); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND transaction_type = 'DISCOUNT'
+	`, tenantID, startDate, endDate).Scan(&discounts); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND transaction_type = 'INCOME'
+	`, tenantID, startDate, endDate).Scan(&otherIncome); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND category = 'FEED'
+		  AND transaction_type = 'PURCHASE'
+	`, tenantID, startDate, endDate).Scan(&feedExpense); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND category = 'MEDICINE'
+		  AND transaction_type IN ('PURCHASE', 'SALE')
+	`, tenantID, startDate, endDate).Scan(&medicineExpense); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND category = 'OTHER'
+		  AND transaction_type = 'EXPENSE'
+	`, tenantID, startDate, endDate).Scan(&otherExpense); err != nil {
+		return 0, 0, 0, err
+	}
+
+	if err := database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+		  AND transaction_date >= $2
+		  AND transaction_date <= $3
+		  AND transaction_type = 'TDS'
+	`, tenantID, startDate, endDate).Scan(&tdsExpense); err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalSales := sanitizeFloat(eggSales + discounts + otherIncome)
+	totalExpense := sanitizeFloat(feedExpense + medicineExpense + otherExpense + tdsExpense)
+	netProfit := sanitizeFloat(totalSales - totalExpense)
+	return totalSales, totalExpense, netProfit, nil
+}
+
+// GetDateRangeSummary returns aggregated sales/expense/profit for custom date range.
+func GetDateRangeSummary(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to get permissions")
+		return
+	}
+	if !perms.CanViewCharts {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions to view charts")
+		return
+	}
+
+	startStr := r.URL.Query().Get("start_date")
+	endStr := r.URL.Query().Get("end_date")
+	if startStr == "" || endStr == "" {
+		respondWithError(w, http.StatusBadRequest, "start_date and end_date are required (YYYY-MM-DD)")
+		return
+	}
+
+	startDate, err := time.Parse("2006-01-02", startStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid start_date format; expected YYYY-MM-DD")
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", endStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid end_date format; expected YYYY-MM-DD")
+		return
+	}
+	if endDate.Before(startDate) {
+		respondWithError(w, http.StatusBadRequest, "end_date must be on or after start_date")
+		return
+	}
+
+	totalSales, totalExpense, netProfit, err := calculateSummaryForDateRange(tenantID, startDate, endDate)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to calculate range summary")
+		return
+	}
+
+	shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
+	shouldHideFeed, _ := utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
+	shouldHideProfit, _ := utils.IsDataSensitive(database.DB, tenantID, "NET_PROFIT", perms.CanViewSensitiveData)
+	if shouldHideEggs {
+		totalSales = 0
+	}
+	if shouldHideFeed {
+		totalExpense = 0
+	}
+	if shouldHideProfit {
+		netProfit = 0
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"start_date":    startDate.Format("2006-01-02"),
+			"end_date":      endDate.Format("2006-01-02"),
+			"total_sales":   totalSales,
+			"total_expense": totalExpense,
+			"net_profit":    netProfit,
+		},
+	})
+}
+
+// GetYearlyPeriodSummary returns calendar-year or financial-year summaries.
+func GetYearlyPeriodSummary(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to get permissions")
+		return
+	}
+	if !perms.CanViewCharts {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions to view charts")
+		return
+	}
+
+	periodType := r.URL.Query().Get("period_type")
+	if periodType == "" {
+		periodType = "calendar"
+	}
+	if periodType != "calendar" && periodType != "financial" {
+		respondWithError(w, http.StatusBadRequest, "period_type must be 'calendar' or 'financial'")
+		return
+	}
+
+	fyStartMonth := getTenantFinancialYearStartMonth(tenantID)
+	if v := r.URL.Query().Get("fy_start_month"); v != "" {
+		if parsed, parseErr := strconv.Atoi(v); parseErr == nil && parsed >= 1 && parsed <= 12 {
+			fyStartMonth = parsed
+		}
+	}
+
+	var minDate, maxDate time.Time
+	err = database.DB.QueryRow(`
+		SELECT MIN(transaction_date), MAX(transaction_date)
+		FROM transactions
+		WHERE tenant_id = $1
+	`, tenantID).Scan(&minDate, &maxDate)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch transaction bounds")
+		return
+	}
+	if minDate.IsZero() || maxDate.IsZero() {
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{"success": true, "data": []PeriodSummary{}})
+		return
+	}
+
+	today := time.Now().UTC()
+	if today.Before(maxDate) {
+		maxDate = today
+	}
+
+	shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
+	shouldHideFeed, _ := utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
+	shouldHideProfit, _ := utils.IsDataSensitive(database.DB, tenantID, "NET_PROFIT", perms.CanViewSensitiveData)
+
+	summaries := []PeriodSummary{}
+	if periodType == "calendar" {
+		for year := maxDate.Year(); year >= minDate.Year(); year-- {
+			periodStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+			periodEnd := time.Date(year, time.December, 31, 0, 0, 0, 0, time.UTC)
+			if periodEnd.After(maxDate) {
+				periodEnd = maxDate
+			}
+			if periodStart.Before(minDate) {
+				periodStart = minDate
+			}
+			if periodStart.After(periodEnd) {
+				continue
+			}
+
+			totalSales, totalExpense, netProfit, calcErr := calculateSummaryForDateRange(tenantID, periodStart, periodEnd)
+			if calcErr != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to calculate yearly summary")
+				return
+			}
+			if shouldHideEggs {
+				totalSales = 0
+			}
+			if shouldHideFeed {
+				totalExpense = 0
+			}
+			if shouldHideProfit {
+				netProfit = 0
+			}
+
+			summaries = append(summaries, PeriodSummary{
+				PeriodType:   periodType,
+				PeriodLabel:  fmt.Sprintf("%d", year),
+				Year:         year,
+				PeriodStart:  periodStart.Format("2006-01-02"),
+				PeriodEnd:    periodEnd.Format("2006-01-02"),
+				TotalSales:   totalSales,
+				TotalExpense: totalExpense,
+				NetProfit:    netProfit,
+			})
+		}
+	} else {
+		fyStartYear := func(d time.Time, startMonth int) int {
+			if int(d.Month()) < startMonth {
+				return d.Year() - 1
+			}
+			return d.Year()
+		}
+
+		firstFY := fyStartYear(minDate, fyStartMonth)
+		lastFY := fyStartYear(maxDate, fyStartMonth)
+		for fy := lastFY; fy >= firstFY; fy-- {
+			periodStart := time.Date(fy, time.Month(fyStartMonth), 1, 0, 0, 0, 0, time.UTC)
+			periodEnd := periodStart.AddDate(1, 0, -1)
+			if periodEnd.After(maxDate) {
+				periodEnd = maxDate
+			}
+			if periodStart.Before(minDate) {
+				periodStart = minDate
+			}
+			if periodStart.After(periodEnd) {
+				continue
+			}
+
+			totalSales, totalExpense, netProfit, calcErr := calculateSummaryForDateRange(tenantID, periodStart, periodEnd)
+			if calcErr != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to calculate financial-year summary")
+				return
+			}
+			if shouldHideEggs {
+				totalSales = 0
+			}
+			if shouldHideFeed {
+				totalExpense = 0
+			}
+			if shouldHideProfit {
+				netProfit = 0
+			}
+
+			summaries = append(summaries, PeriodSummary{
+				PeriodType:              periodType,
+				PeriodLabel:             fmt.Sprintf("FY %d-%02d", fy, (fy+1)%100),
+				Year:                    fy + 1,
+				PeriodStart:             periodStart.Format("2006-01-02"),
+				PeriodEnd:               periodEnd.Format("2006-01-02"),
+				TotalSales:              totalSales,
+				TotalExpense:            totalExpense,
+				NetProfit:               netProfit,
+				FinancialYearStartMonth: fyStartMonth,
+			})
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    summaries,
+	})
+}
+
 // GetEnhancedMonthlySummary returns detailed monthly statistics
 func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)

@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     date_format VARCHAR(20) DEFAULT 'DD-MM-YYYY',
     timezone VARCHAR(50) DEFAULT 'Asia/Kolkata', -- IANA timezone identifier
     egg_price_reference_zone VARCHAR(100) DEFAULT 'Namakkal', -- NECC zone used for egg price import
+    financial_year_start_month INTEGER DEFAULT 4 CHECK (financial_year_start_month BETWEEN 1 AND 12), -- Tenant fiscal year start month
     age_category_chick_max_weeks INTEGER DEFAULT 6, -- Standard: 6 weeks
     age_category_grower_max_weeks INTEGER DEFAULT 18, -- Standard: 18 weeks
     age_category_prelayer_max_weeks INTEGER DEFAULT 22, -- Standard: 22 weeks

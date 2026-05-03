@@ -610,9 +610,11 @@ CREATE TABLE public.tenants (
     id uuid NOT NULL,
     timezone character varying(50) DEFAULT 'Asia/Kolkata'::character varying,
     egg_price_reference_zone character varying(100) DEFAULT 'Namakkal'::character varying,
+    financial_year_start_month integer DEFAULT 4,
     age_category_chick_max_weeks integer DEFAULT 6,
     age_category_grower_max_weeks integer DEFAULT 18,
-    age_category_prelayer_max_weeks integer DEFAULT 22
+    age_category_prelayer_max_weeks integer DEFAULT 22,
+    CONSTRAINT tenants_financial_year_start_month_check CHECK (((financial_year_start_month >= 1) AND (financial_year_start_month <= 12)))
 );
 
 
@@ -622,6 +624,7 @@ CREATE TABLE public.tenants (
 
 COMMENT ON COLUMN public.tenants.timezone IS 'IANA timezone identifier (e.g., Asia/Kolkata, America/New_York)';
 COMMENT ON COLUMN public.tenants.egg_price_reference_zone IS 'Preferred NECC zone for tenant egg price import (e.g., Namakkal, Hyderabad)';
+COMMENT ON COLUMN public.tenants.financial_year_start_month IS 'Financial year start month (1-12). Example: 4 for April-March financial year.';
 
 
 --
