@@ -83,6 +83,20 @@ def coerce_date(value):
     return parsed.date()
 
 
+def coerce_nullable_number(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
 def _sum_egg_qty(eggs_df, keyword):
     if eggs_df is None or eggs_df.empty:
         return None
@@ -98,6 +112,35 @@ def _sum_feeds_qty(feeds_df):
     return float(feeds_df["total_qty"].fillna(0).sum())
 
 
+def resolve_provider(cur, tenant_id, summary):
+    """Find or create a provider from the parsed summary. Returns provider UUID."""
+    provider_name = summary.get("feed_provider")
+    if not provider_name:
+        return None
+
+    cur.execute(
+        "SELECT id FROM providers WHERE tenant_id = %s AND name = %s",
+        (tenant_id, provider_name),
+    )
+    row = cur.fetchone()
+    if row:
+        provider_id = row[0]
+        cur.execute(
+            """UPDATE providers SET contact = COALESCE(%s, contact),
+               email = COALESCE(%s, email), updated_at = CURRENT_TIMESTAMP
+               WHERE id = %s""",
+            (summary.get("provider_contact"), summary.get("provider_email"), provider_id),
+        )
+        return provider_id
+
+    cur.execute(
+        """INSERT INTO providers (tenant_id, name, contact, email)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (tenant_id, provider_name, summary.get("provider_contact"), summary.get("provider_email")),
+    )
+    return cur.fetchone()[0]
+
+
 def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
     eggs_df = parsed.get("eggs_agg")
     feeds_df = parsed.get("feeds_agg")
@@ -105,6 +148,8 @@ def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
     eggs_medium_qty = _sum_egg_qty(eggs_df, "MEDIUM")
     eggs_small_qty = _sum_egg_qty(eggs_df, "SMALL")
     feeds_total_kg = _sum_feeds_qty(feeds_df)
+
+    provider_id = resolve_provider(cur, tenant_id, summary)
 
     cur.execute(
         """
@@ -129,7 +174,10 @@ def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
                 eggs_large_qty = %s,
                 eggs_medium_qty = %s,
                 eggs_small_qty = %s,
-                feeds_total_kg = %s
+                feeds_total_kg = %s,
+                provider_id = %s,
+                account_holder = %s,
+                ledger_period = %s
             WHERE id = %s
             """,
             (
@@ -144,6 +192,9 @@ def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
                 eggs_medium_qty,
                 eggs_small_qty,
                 feeds_total_kg,
+                provider_id,
+                summary.get("account_holder"),
+                summary.get("ledger_period"),
                 ledger_id,
             ),
         )
@@ -155,9 +206,10 @@ def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
             tenant_id, pdf_filename, parse_date, month, year,
             opening_balance, closing_balance, total_eggs, total_feeds,
             total_medicines, net_profit, eggs_large_qty, eggs_medium_qty,
-            eggs_small_qty, feeds_total_kg
+            eggs_small_qty, feeds_total_kg,
+            provider_id, account_holder, ledger_period
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -176,6 +228,9 @@ def insert_ledger_parse(cur, tenant_id, pdf_name, year, month, summary, parsed):
             eggs_medium_qty,
             eggs_small_qty,
             feeds_total_kg,
+            provider_id,
+            summary.get("account_holder"),
+            summary.get("ledger_period"),
         ),
     )
     return cur.fetchone()[0]
@@ -231,10 +286,10 @@ def insert_transactions(cur, tenant_id, parsed, import_note):
                     map_transaction_type(category),
                     normalize_category(category),
                     row.get("item_name"),
-                    row.get("qty"),
+                    coerce_nullable_number(row.get("qty")),
                     row.get("unit"),
-                    row.get("rate"),
-                    row.get("amount"),
+                    coerce_nullable_number(row.get("rate")),
+                    coerce_nullable_number(row.get("amount")),
                     import_note,
                 )
             )
@@ -256,7 +311,7 @@ def insert_transactions(cur, tenant_id, parsed, import_note):
                     None,
                     None,
                     None,
-                    row.get("amount"),
+                    coerce_nullable_number(row.get("amount")),
                     import_note,
                 )
             )
