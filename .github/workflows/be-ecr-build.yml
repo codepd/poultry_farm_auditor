@@ -74,8 +74,20 @@ jobs:
             docker push "$IMAGE_URI:latest"
           fi
 
-  deploy-to-eks:
+  approve-deploy:
     needs: build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      # Configure required reviewers for this environment in GitHub settings
+      # to enforce manual approval before deploy.
+      name: go-api-dev-deploy
+    steps:
+      - name: Await manual approval
+        run: |
+          echo "Manual approval granted for deploying ${{ needs.build-and-push.outputs.image_uri }}:${{ needs.build-and-push.outputs.image_tag }}"
+
+  deploy-to-eks:
+    needs: [build-and-push, approve-deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
