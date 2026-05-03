@@ -56,8 +56,8 @@ resource "aws_iam_role_policy" "ecr_push" {
         ]
       },
       {
-        Effect = "Allow"
-        Action = ["ecr:GetAuthorizationToken"]
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
         Resource = "*"
       }
     ]
@@ -105,6 +105,25 @@ resource "aws_iam_role_policy" "cloudfront_invalidate" {
           "cloudfront:ListInvalidations"
         ]
         Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "eks_deploy" {
+  count = var.eks_cluster_arn != "" ? 1 : 0
+  name  = "${var.role_name}-eks"
+  role  = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster"
+        ]
+        Resource = [var.eks_cluster_arn]
       }
     ]
   })

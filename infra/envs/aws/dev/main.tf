@@ -81,6 +81,7 @@ module "github_oidc" {
   ecr_repository_arn         = module.ecr.repository_arn
   s3_bucket_arn              = module.s3_cdn.bucket_arn
   cloudfront_distribution_id = module.s3_cdn.cloudfront_distribution_id
+  eks_cluster_arn            = module.eks.cluster_arn
 }
 
 # Route53 zone for API domain (use existing or create new)

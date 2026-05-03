@@ -25,3 +25,9 @@ variable "cloudfront_distribution_id" {
   description = "CloudFront distribution ID for cache invalidation"
   default     = ""
 }
+
+variable "eks_cluster_arn" {
+  type        = string
+  description = "ARN of EKS cluster that GitHub Actions deploys to"
+  default     = ""
+}
