@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     number_format VARCHAR(20) DEFAULT 'lakhs', -- 'lakhs' or 'millions'
     date_format VARCHAR(20) DEFAULT 'DD-MM-YYYY',
     timezone VARCHAR(50) DEFAULT 'Asia/Kolkata', -- IANA timezone identifier
+    egg_price_reference_zone VARCHAR(100) DEFAULT 'Namakkal', -- NECC zone used for egg price import
     age_category_chick_max_weeks INTEGER DEFAULT 6, -- Standard: 6 weeks
     age_category_grower_max_weeks INTEGER DEFAULT 18, -- Standard: 18 weeks
     age_category_prelayer_max_weeks INTEGER DEFAULT 22, -- Standard: 22 weeks
@@ -257,6 +258,20 @@ CREATE TABLE IF NOT EXISTS mortality (
 );
 """
 
+CREATE_HEN_BATCH_SALES_TABLE = """
+CREATE TABLE IF NOT EXISTS hen_batch_sales (
+    id SERIAL PRIMARY KEY,
+    batch_id INTEGER NOT NULL REFERENCES hen_batches(id) ON DELETE CASCADE,
+    sale_date DATE NOT NULL,
+    count INTEGER NOT NULL CHECK (count > 0),
+    price_per_hen DECIMAL(12, 2) NOT NULL CHECK (price_per_hen >= 0),
+    total_amount DECIMAL(12, 2) NOT NULL CHECK (total_amount >= 0),
+    notes TEXT,
+    recorded_by_user_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 CREATE_EMPLOYEES_TABLE = """
 CREATE TABLE IF NOT EXISTS employees (
     id SERIAL PRIMARY KEY,
@@ -394,6 +409,7 @@ def get_all_schema_sql():
         CREATE_LEDGER_BREAKDOWNS_TABLE,
         CREATE_HEN_BATCHES_TABLE,
         CREATE_MORTALITY_TABLE,
+        CREATE_HEN_BATCH_SALES_TABLE,
         CREATE_EMPLOYEES_TABLE,
         CREATE_INDEXES,
         INIT_ROLE_PERMISSIONS,

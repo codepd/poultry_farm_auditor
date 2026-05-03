@@ -403,8 +403,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				defer mortalityRows.Close()
 
-				// Store mortality by batch_id and date
-				// Key: batch_id, Value: map of date -> count
+				// Store mortality by batch_id and date.
 				mortalityByBatch := make(map[int]map[time.Time]int)
 
 				for mortalityRows.Next() {
@@ -419,6 +418,34 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 						mortalityByBatch[batchID] = make(map[time.Time]int)
 					}
 					mortalityByBatch[batchID][mortalityDate] += count
+				}
+
+				// Store sales by batch_id and date so sold hens are removed from head count.
+				salesByBatch := make(map[int]map[time.Time]int)
+
+				saleQuery := fmt.Sprintf(`
+					SELECT batch_id, sale_date, count
+					FROM hen_batch_sales
+					WHERE batch_id IN (%s)
+					  AND sale_date < $%d
+					ORDER BY batch_id, sale_date
+				`, placeholders, len(batchIDs)+1)
+
+				saleRows, saleErr := database.DB.Query(saleQuery, mortalityArgs...)
+				if saleErr == nil {
+					defer saleRows.Close()
+					for saleRows.Next() {
+						var batchID int
+						var saleDate time.Time
+						var count int
+						if err := saleRows.Scan(&batchID, &saleDate, &count); err != nil {
+							continue
+						}
+						if salesByBatch[batchID] == nil {
+							salesByBatch[batchID] = make(map[time.Time]int)
+						}
+						salesByBatch[batchID][saleDate] += count
+					}
 				}
 
 				// Calculate total head count days (sum of head count for each day)
@@ -470,6 +497,15 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 							for mortDate, mortCount := range mortalities {
 								if !mortDate.After(currentDay) {
 									batchCountOnDay -= mortCount
+								}
+							}
+						}
+
+						// Subtract all sold hens up to and including this day.
+						if sales, exists := salesByBatch[batch.ID]; exists {
+							for saleDate, soldCount := range sales {
+								if !saleDate.After(currentDay) {
+									batchCountOnDay -= soldCount
 								}
 							}
 						}
@@ -534,6 +570,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	// Get medicine and other expenses from transactions for this month
 	var medicineExpenses, otherExpensesFromTxns float64
 	var totalDiscounts, totalTDS float64
+	var totalOtherIncome, henSaleIncome float64
 	database.DB.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM transactions
@@ -573,6 +610,27 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 			AND transaction_type = 'TDS'
 	`, tenantID, year, month).Scan(&totalTDS)
 	totalTDS = sanitizeFloat(totalTDS)
+
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+			AND EXTRACT(YEAR FROM transaction_date) = $2
+			AND EXTRACT(MONTH FROM transaction_date) = $3
+			AND transaction_type = 'INCOME'
+	`, tenantID, year, month).Scan(&totalOtherIncome)
+	totalOtherIncome = sanitizeFloat(totalOtherIncome)
+
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+			AND EXTRACT(YEAR FROM transaction_date) = $2
+			AND EXTRACT(MONTH FROM transaction_date) = $3
+			AND transaction_type = 'INCOME'
+			AND item_name ILIKE 'HEN BATCH SALE - %'
+	`, tenantID, year, month).Scan(&henSaleIncome)
+	henSaleIncome = sanitizeFloat(henSaleIncome)
 
 	// Get payments received (PAYMENT transaction type)
 	var totalPayments float64
@@ -730,8 +788,11 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		finalMedicines = sanitizeFloat(medicineExpenses)
 	}
 
-	// Recalculate net profit: Egg sales + discounts - (feed + medicine + other + TDS)
-	calculatedNetProfit := sanitizeFloat((totalEggPrice + totalDiscounts) - (totalFeedPrice + finalMedicines + otherExpensesFromTxns + totalTDS))
+	// Recalculate net profit: egg sales + discounts + other income - (feed + medicine + other + TDS)
+	calculatedNetProfit := sanitizeFloat(
+		(totalEggPrice + totalDiscounts + totalOtherIncome) -
+			(totalFeedPrice + finalMedicines + otherExpensesFromTxns + totalTDS),
+	)
 
 	// Use calculated profit if ledger profit is 0, invalid, or significantly different
 	if !ledgerParse.NetProfit.Valid || ledgerParse.NetProfit.Float64 == 0 {
@@ -798,6 +859,139 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Stage-wise chick rearing expense (0-25 weeks) for the latest batch added in this year.
+	chickStageExpense := map[string]interface{}{
+		"enabled":                      false,
+		"batch_id":                     nil,
+		"batch_name":                   nil,
+		"monthly_total":                0.0,
+		"monthly_chick_stage":          0.0,
+		"monthly_grower_stage":         0.0,
+		"monthly_prelayer_stage":       0.0,
+		"total_till_25_weeks":          0.0,
+		"total_till_25_weeks_chick":    0.0,
+		"total_till_25_weeks_grower":   0.0,
+		"total_till_25_weeks_prelayer": 0.0,
+	}
+
+	type rearingBatch struct {
+		ID         int
+		BatchName  string
+		DateAdded  time.Time
+		AgeWeeks   int
+		AgeDays    int
+		InitialAge int
+	}
+
+	var rb rearingBatch
+	err = database.DB.QueryRow(`
+		SELECT id, batch_name, date_added, COALESCE(age_weeks, 0), COALESCE(age_days, 0)
+		FROM hen_batches
+		WHERE tenant_id = $1
+		  AND EXTRACT(YEAR FROM date_added) = $2
+		ORDER BY date_added DESC
+		LIMIT 1
+	`, tenantID, year).Scan(&rb.ID, &rb.BatchName, &rb.DateAdded, &rb.AgeWeeks, &rb.AgeDays)
+
+	if err == nil {
+		rb.InitialAge = rb.AgeWeeks*7 + rb.AgeDays
+		chickStageExpense["enabled"] = true
+		chickStageExpense["batch_id"] = rb.ID
+		chickStageExpense["batch_name"] = rb.BatchName
+
+		classifyStage := func(txnDate time.Time) string {
+			diffDays := int(txnDate.Sub(rb.DateAdded).Hours() / 24)
+			ageDaysOnTxn := rb.InitialAge + diffDays
+			if ageDaysOnTxn < 0 {
+				ageDaysOnTxn = 0
+			}
+			ageWeeksOnTxn := ageDaysOnTxn / 7
+
+			switch {
+			case ageWeeksOnTxn <= 8:
+				return "CHICK"
+			case ageWeeksOnTxn <= 16:
+				return "GROWER"
+			case ageWeeksOnTxn <= 25:
+				return "PRELAYER"
+			default:
+				return ""
+			}
+		}
+
+		monthlyStage := map[string]float64{"CHICK": 0, "GROWER": 0, "PRELAYER": 0}
+		monthlyRows, mErr := database.DB.Query(`
+			SELECT transaction_date, COALESCE(amount, 0)
+			FROM transactions
+			WHERE tenant_id = $1
+			  AND EXTRACT(YEAR FROM transaction_date) = $2
+			  AND EXTRACT(MONTH FROM transaction_date) = $3
+			  AND category = 'FEED'
+			  AND transaction_type = 'PURCHASE'
+		`, tenantID, year, month)
+		if mErr == nil {
+			defer monthlyRows.Close()
+			for monthlyRows.Next() {
+				var txnDate time.Time
+				var amount float64
+				if scanErr := monthlyRows.Scan(&txnDate, &amount); scanErr != nil {
+					continue
+				}
+				stage := classifyStage(txnDate)
+				if stage == "" {
+					continue
+				}
+				monthlyStage[stage] += sanitizeFloat(amount)
+			}
+		}
+
+		cumulativeStage := map[string]float64{"CHICK": 0, "GROWER": 0, "PRELAYER": 0}
+		maxRearingEnd := rb.DateAdded.AddDate(0, 0, (25*7)-rb.InitialAge)
+		cutoff := monthEnd.AddDate(0, 0, -1)
+		if maxRearingEnd.Before(cutoff) {
+			cutoff = maxRearingEnd
+		}
+
+		if !cutoff.Before(rb.DateAdded) {
+			cumulativeRows, cErr := database.DB.Query(`
+				SELECT transaction_date, COALESCE(amount, 0)
+				FROM transactions
+				WHERE tenant_id = $1
+				  AND transaction_date >= $2
+				  AND transaction_date <= $3
+				  AND category = 'FEED'
+				  AND transaction_type = 'PURCHASE'
+			`, tenantID, rb.DateAdded, cutoff)
+			if cErr == nil {
+				defer cumulativeRows.Close()
+				for cumulativeRows.Next() {
+					var txnDate time.Time
+					var amount float64
+					if scanErr := cumulativeRows.Scan(&txnDate, &amount); scanErr != nil {
+						continue
+					}
+					stage := classifyStage(txnDate)
+					if stage == "" {
+						continue
+					}
+					cumulativeStage[stage] += sanitizeFloat(amount)
+				}
+			}
+		}
+
+		monthlyTotal := monthlyStage["CHICK"] + monthlyStage["GROWER"] + monthlyStage["PRELAYER"]
+		cumulativeTotal := cumulativeStage["CHICK"] + cumulativeStage["GROWER"] + cumulativeStage["PRELAYER"]
+
+		chickStageExpense["monthly_total"] = sanitizeFloat(monthlyTotal)
+		chickStageExpense["monthly_chick_stage"] = sanitizeFloat(monthlyStage["CHICK"])
+		chickStageExpense["monthly_grower_stage"] = sanitizeFloat(monthlyStage["GROWER"])
+		chickStageExpense["monthly_prelayer_stage"] = sanitizeFloat(monthlyStage["PRELAYER"])
+		chickStageExpense["total_till_25_weeks"] = sanitizeFloat(cumulativeTotal)
+		chickStageExpense["total_till_25_weeks_chick"] = sanitizeFloat(cumulativeStage["CHICK"])
+		chickStageExpense["total_till_25_weeks_grower"] = sanitizeFloat(cumulativeStage["GROWER"])
+		chickStageExpense["total_till_25_weeks_prelayer"] = sanitizeFloat(cumulativeStage["PRELAYER"])
+	}
+
 	summary := map[string]interface{}{
 		"year":                 year,
 		"month":                month,
@@ -810,10 +1004,13 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		"total_medicines":      finalMedicines,
 		"medicine_breakdown":   medicineBreakdownFinal,
 		"other_expenses":       otherExpensesFromTxns,
+		"other_income":         totalOtherIncome,
+		"hen_sale_income":      henSaleIncome,
 		"total_discounts":      totalDiscounts,
 		"total_tds":            totalTDS,
 		"total_payments":       totalPayments,
 		"payment_breakdown":    paymentBreakdownFinal,
+		"chick_stage_expense":  chickStageExpense,
 		"net_profit":           netProfit,
 		"estimated_hens":       estimatedHens,
 		"actual_head_count":    actualHeadCount,
@@ -885,7 +1082,7 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 		var totalSales, totalExpense, netProfit float64
 
 		// Calculate totals from transactions
-		var totalFeed, totalMedicine, totalLabor, totalOther, totalDiscounts, totalTDS float64
+		var totalFeed, totalMedicine, totalLabor, totalOther, totalDiscounts, totalTDS, totalOtherIncome float64
 
 		// For current year, only include data up to current month
 		if year == currentYear {
@@ -1043,8 +1240,18 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND transaction_type = 'TDS'
 			`, tenantID, year, currentMonth).Scan(&totalTDS)
 
-			// Calculate total sales: egg sales + discounts
-			totalSales = totalSales + totalDiscounts
+			// Get additional income entries (e.g., hen sale income)
+			database.DB.QueryRow(`
+				SELECT COALESCE(SUM(amount), 0)
+				FROM transactions
+				WHERE tenant_id = $1
+					AND EXTRACT(YEAR FROM transaction_date) = $2
+					AND EXTRACT(MONTH FROM transaction_date) <= $3
+					AND transaction_type = 'INCOME'
+			`, tenantID, year, currentMonth).Scan(&totalOtherIncome)
+
+			// Calculate total sales: egg sales + discounts + other income
+			totalSales = totalSales + totalDiscounts + totalOtherIncome
 
 			// Calculate total expense: feed + medicine + labor + other + TDS
 			totalExpense = totalFeed + totalMedicine + totalLabor + totalOther + totalTDS
@@ -1196,8 +1403,17 @@ func GetAllYearsSummary(w http.ResponseWriter, r *http.Request) {
 					AND transaction_type = 'TDS'
 			`, tenantID, year).Scan(&totalTDS)
 
-			// Calculate total sales: egg sales + discounts
-			totalSales = totalSales + totalDiscounts
+			// Get additional income entries (e.g., hen sale income)
+			database.DB.QueryRow(`
+				SELECT COALESCE(SUM(amount), 0)
+				FROM transactions
+				WHERE tenant_id = $1
+					AND EXTRACT(YEAR FROM transaction_date) = $2
+					AND transaction_type = 'INCOME'
+			`, tenantID, year).Scan(&totalOtherIncome)
+
+			// Calculate total sales: egg sales + discounts + other income
+			totalSales = totalSales + totalDiscounts + totalOtherIncome
 
 			// Calculate total expense: feed + medicine + labor + other + TDS
 			totalExpense = totalFeed + totalMedicine + totalLabor + totalOther + totalTDS
@@ -1271,6 +1487,7 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		MedicineExpense float64 `json:"medicine_expense"`
 		LaborExpense    float64 `json:"labor_expense"`
 		OtherExpense    float64 `json:"other_expense"`
+		OtherIncome     float64 `json:"other_income"`
 		TotalDiscounts  float64 `json:"total_discounts"`
 		TotalTDS        float64 `json:"total_tds"`
 		TotalExpense    float64 `json:"total_expense"`
@@ -1285,7 +1502,8 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		year := date.Year()
 		month := int(date.Month())
 
-		var sales, feedExpense, medicineExpense, laborExpense, otherExpense, totalDiscounts, totalTDS, netProfit float64
+		var sales, feedExpense, medicineExpense, laborExpense, otherExpense float64
+		var totalDiscounts, totalTDS, totalOtherIncome, netProfit float64
 
 		// Get sales (egg sales)
 		database.DB.QueryRow(`
@@ -1458,9 +1676,19 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 				AND transaction_type = 'TDS'
 		`, tenantID, year, month).Scan(&totalTDS)
 
+		// Get additional incomes (e.g., hen batch sale income)
+		database.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE tenant_id = $1
+				AND EXTRACT(YEAR FROM transaction_date) = $2
+				AND EXTRACT(MONTH FROM transaction_date) = $3
+				AND transaction_type = 'INCOME'
+		`, tenantID, year, month).Scan(&totalOtherIncome)
+
 		// Calculate net profit after discounts:
-		// Egg sales + discounts - (feed + medicine + labor + other + TDS)
-		netProfit = (sales + totalDiscounts) - (feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS)
+		// Egg sales + discounts + other income - (feed + medicine + labor + other + TDS)
+		netProfit = (sales + totalDiscounts + totalOtherIncome) - (feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS)
 
 		// Check sensitive data
 		shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
@@ -1488,6 +1716,7 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 			MedicineExpense: medicineExpense,
 			LaborExpense:    laborExpense,
 			OtherExpense:    otherExpense,
+			OtherIncome:     totalOtherIncome,
 			TotalDiscounts:  totalDiscounts,
 			TotalTDS:        totalTDS,
 			TotalExpense:    totalExpense,

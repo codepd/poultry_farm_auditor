@@ -64,6 +64,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			       COALESCE(number_format, '') AS number_format,
 			       COALESCE(date_format, '') AS date_format,
 			       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+			       COALESCE(egg_price_reference_zone, 'Namakkal') AS egg_price_reference_zone,
 			       capacity, 
 			       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 			       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -87,7 +88,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 			INNER JOIN tenant_hierarchy th ON t.parent_id = th.id
 		)
 		SELECT id, parent_id, name, location, country_code, currency, 
-		       number_format, date_format, timezone, capacity,
+		       number_format, date_format, timezone, egg_price_reference_zone, capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
 		       created_at, updated_at
@@ -112,7 +113,7 @@ func GetTenants(w http.ResponseWriter, r *http.Request) {
 		err := rows.Scan(
 			&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 			&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-			&tenant.DateFormat, &tenant.Timezone, &capacity,
+			&tenant.DateFormat, &tenant.Timezone, &tenant.EggPriceReferenceZone, &capacity,
 			&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
 			&refreshWithoutRememberHours, &refreshWithRememberDays,
 			&tenant.CreatedAt, &tenant.UpdatedAt,
@@ -201,6 +202,7 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(number_format, '') AS number_format,
 		       COALESCE(date_format, '') AS date_format,
 		       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+		       COALESCE(egg_price_reference_zone, 'Namakkal') AS egg_price_reference_zone,
 		       capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -210,7 +212,7 @@ func GetTenant(w http.ResponseWriter, r *http.Request) {
 	`, tenantID).Scan(
 		&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-		&tenant.DateFormat, &tenant.Timezone, &capacity,
+		&tenant.DateFormat, &tenant.Timezone, &tenant.EggPriceReferenceZone, &capacity,
 		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
 		&refreshWithoutRememberHours, &refreshWithRememberDays,
 		&tenant.CreatedAt, &tenant.UpdatedAt,
@@ -303,6 +305,10 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if timezone == "" {
 		timezone = "Asia/Kolkata" // Default to IST
 	}
+	eggPriceReferenceZone := strings.TrimSpace(req.EggPriceReferenceZone)
+	if eggPriceReferenceZone == "" {
+		eggPriceReferenceZone = "Namakkal"
+	}
 	insertRefreshWithoutRememberHours := 12
 	if req.RefreshTTLWithoutRememberHours != nil && *req.RefreshTTLWithoutRememberHours > 0 {
 		insertRefreshWithoutRememberHours = *req.RefreshTTLWithoutRememberHours
@@ -316,13 +322,13 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var tenantID uuid.UUID
 	err = database.DB.QueryRow(`
 		INSERT INTO tenants (
-			parent_id, name, location, country_code, currency, number_format, date_format, timezone, capacity,
+			parent_id, name, location, country_code, currency, number_format, date_format, timezone, egg_price_reference_zone, capacity,
 			refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id
 	`, req.ParentID, req.Name, req.Location, req.CountryCode, req.Currency,
-		req.NumberFormat, req.DateFormat, timezone, req.Capacity,
+		req.NumberFormat, req.DateFormat, timezone, eggPriceReferenceZone, req.Capacity,
 		insertRefreshWithoutRememberHours, insertRefreshWithRememberDays).Scan(&tenantID)
 
 	if err != nil {
@@ -344,6 +350,7 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(number_format, '') AS number_format,
 		       COALESCE(date_format, '') AS date_format,
 		       COALESCE(timezone, 'Asia/Kolkata') AS timezone,
+		       COALESCE(egg_price_reference_zone, 'Namakkal') AS egg_price_reference_zone,
 		       capacity,
 		       age_category_chick_max_weeks, age_category_grower_max_weeks, age_category_prelayer_max_weeks,
 		       refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days,
@@ -353,7 +360,7 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	`, tenantID).Scan(
 		&tenant.ID, &parentID, &tenant.Name, &tenant.Location,
 		&tenant.CountryCode, &tenant.Currency, &tenant.NumberFormat,
-		&tenant.DateFormat, &tenant.Timezone, &capacity,
+		&tenant.DateFormat, &tenant.Timezone, &tenant.EggPriceReferenceZone, &capacity,
 		&chickMaxWeeks, &growerMaxWeeks, &preLayerMaxWeeks,
 		&refreshWithoutRememberHours, &refreshWithRememberDays,
 		&tenant.CreatedAt, &tenant.UpdatedAt,
@@ -471,6 +478,16 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	if req.Timezone != nil {
 		updates = append(updates, fmt.Sprintf("timezone = $%d", argIndex))
 		args = append(args, *req.Timezone)
+		argIndex++
+	}
+	if req.EggPriceReferenceZone != nil {
+		zone := strings.TrimSpace(*req.EggPriceReferenceZone)
+		if zone == "" {
+			respondWithError(w, http.StatusBadRequest, "egg_price_reference_zone cannot be empty")
+			return
+		}
+		updates = append(updates, fmt.Sprintf("egg_price_reference_zone = $%d", argIndex))
+		args = append(args, zone)
 		argIndex++
 	}
 	if req.AgeCategoryChickMaxWeeks != nil {

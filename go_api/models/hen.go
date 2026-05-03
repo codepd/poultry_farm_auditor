@@ -70,3 +70,15 @@ type HenMortality struct {
 	RecordedByUserID *int       `json:"recorded_by_user_id,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
+
+type HenBatchSale struct {
+	ID               int        `json:"id"`
+	BatchID          int        `json:"batch_id"`
+	SaleDate         time.Time  `json:"sale_date"`
+	Count            int        `json:"count"`
+	PricePerHen      float64    `json:"price_per_hen"`
+	TotalAmount      float64    `json:"total_amount"`
+	Notes            NullString `json:"notes,omitempty"`
+	RecordedByUserID *int       `json:"recorded_by_user_id,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}

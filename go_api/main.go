@@ -91,6 +91,8 @@ func main() {
 	// IMPORTANT: More specific routes must come before parameterized routes
 	protectedRouter.HandleFunc("/hen-batches/{id}/mortality", handlers.GetMortalityHistory).Methods("GET")
 	protectedRouter.HandleFunc("/hen-batches/mortality", handlers.CreateMortality).Methods("POST")
+	protectedRouter.HandleFunc("/hen-batches/{id}/sales", handlers.GetHenBatchSales).Methods("GET")
+	protectedRouter.HandleFunc("/hen-batches/sales", handlers.CreateHenBatchSale).Methods("POST")
 	protectedRouter.HandleFunc("/hen-batches", handlers.GetHenBatches).Methods("GET")
 	protectedRouter.HandleFunc("/hen-batches", handlers.CreateHenBatch).Methods("POST")
 	protectedRouter.HandleFunc("/hen-batches/{id}", handlers.GetHenBatch).Methods("GET")

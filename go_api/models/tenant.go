@@ -15,6 +15,7 @@ type Tenant struct {
 	NumberFormat                   string     `json:"number_format"`
 	DateFormat                     string     `json:"date_format"`
 	Timezone                       string     `json:"timezone"`
+	EggPriceReferenceZone          string     `json:"egg_price_reference_zone"`
 	Capacity                       *int       `json:"capacity,omitempty"`
 	AgeCategoryChickMaxWeeks       *int       `json:"age_category_chick_max_weeks,omitempty"`
 	AgeCategoryGrowerMaxWeeks      *int       `json:"age_category_grower_max_weeks,omitempty"`
@@ -39,6 +40,7 @@ type TenantCreateRequest struct {
 	NumberFormat                   string     `json:"number_format"`
 	DateFormat                     string     `json:"date_format"`
 	Timezone                       string     `json:"timezone"`
+	EggPriceReferenceZone          string     `json:"egg_price_reference_zone"`
 	Capacity                       *int       `json:"capacity,omitempty"`
 	RefreshTTLWithoutRememberHours *int       `json:"refresh_ttl_without_remember_hours,omitempty"`
 	RefreshTTLWithRememberDays     *int       `json:"refresh_ttl_with_remember_days,omitempty"`
@@ -52,6 +54,7 @@ type TenantUpdateRequest struct {
 	NumberFormat                   *string `json:"number_format,omitempty"`
 	DateFormat                     *string `json:"date_format,omitempty"`
 	Timezone                       *string `json:"timezone,omitempty"`
+	EggPriceReferenceZone          *string `json:"egg_price_reference_zone,omitempty"`
 	Capacity                       *int    `json:"capacity,omitempty"`
 	AgeCategoryChickMaxWeeks       *int    `json:"age_category_chick_max_weeks,omitempty"`
 	AgeCategoryGrowerMaxWeeks      *int    `json:"age_category_grower_max_weeks,omitempty"`

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
 	"poultry-farm-api/models"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -431,10 +431,10 @@ func CreateMortality(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "Mortality recorded",
 		"data": map[string]interface{}{
-			"id":            mortalityID,
-			"batch_id":      req.BatchID,
+			"id":             mortalityID,
+			"batch_id":       req.BatchID,
 			"mortality_date": req.MortalityDate,
-			"count":         req.Count,
+			"count":          req.Count,
 		},
 	})
 }
@@ -499,7 +499,7 @@ func GetMortalityHistory(w http.ResponseWriter, r *http.Request) {
 		var record struct {
 			ID               int
 			BatchID          int
-			MortalityDate     time.Time
+			MortalityDate    time.Time
 			Count            int
 			Reason           sql.NullString
 			Notes            sql.NullString
@@ -548,4 +548,213 @@ func GetMortalityHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type HenBatchSaleCreateRequest struct {
+	BatchID     int     `json:"batch_id"`
+	SaleDate    string  `json:"sale_date"` // YYYY-MM-DD
+	Count       int     `json:"count"`
+	PricePerHen float64 `json:"price_per_hen"`
+	Notes       *string `json:"notes,omitempty"`
+}
 
+// CreateHenBatchSale records a partial/full hen batch sale and inserts matching income transaction.
+func CreateHenBatchSale(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	var req HenBatchSaleCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Count <= 0 {
+		respondWithError(w, http.StatusBadRequest, "count must be greater than 0")
+		return
+	}
+	if req.PricePerHen < 0 {
+		respondWithError(w, http.StatusBadRequest, "price_per_hen cannot be negative")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	// Verify batch belongs to tenant and fetch batch name.
+	var batchName string
+	err = database.DB.QueryRow(`
+		SELECT batch_name
+		FROM hen_batches
+		WHERE id = $1 AND tenant_id = $2
+	`, req.BatchID, tenantID).Scan(&batchName)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Hen batch not found")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	saleDate, err := time.Parse("2006-01-02", req.SaleDate)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid sale date format. Use YYYY-MM-DD")
+		return
+	}
+
+	totalAmount := float64(req.Count) * req.PricePerHen
+	periodMonth := time.Date(saleDate.Year(), saleDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Insert sale event (trigger updates current_count).
+	var saleID int
+	err = tx.QueryRow(`
+		INSERT INTO hen_batch_sales (
+			batch_id, sale_date, count, price_per_hen, total_amount, notes, recorded_by_user_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`, req.BatchID, saleDate, req.Count, req.PricePerHen, totalAmount, req.Notes, user.UserID).Scan(&saleID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Failed to record sale: %v", err))
+		return
+	}
+
+	itemName := fmt.Sprintf("HEN BATCH SALE - %s", batchName)
+	transactionNotes := req.Notes
+
+	_, err = tx.Exec(`
+		INSERT INTO transactions (
+			tenant_id, transaction_date, transaction_type, category,
+			item_name, quantity, unit, rate, amount, notes,
+			payment_date, period_month
+		)
+		VALUES ($1, $2, 'INCOME', 'OTHER', $3, $4, 'NOS', $5, $6, $7, $8, $9)
+	`, tenantID, saleDate, itemName, req.Count, req.PricePerHen, totalAmount, transactionNotes, saleDate, periodMonth)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create income transaction: %v", err))
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to commit sale transaction")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
+		"success": true,
+		"message": "Hen batch sale recorded successfully",
+		"data": map[string]interface{}{
+			"id":            saleID,
+			"batch_id":      req.BatchID,
+			"sale_date":     saleDate.Format("2006-01-02"),
+			"count":         req.Count,
+			"price_per_hen": req.PricePerHen,
+			"total_amount":  totalAmount,
+		},
+	})
+}
+
+// GetHenBatchSales returns sale history for a batch.
+func GetHenBatchSales(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	batchID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid batch ID")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	// Verify batch belongs to tenant.
+	var batchTenantID uuid.UUID
+	err = database.DB.QueryRow(`
+		SELECT tenant_id FROM hen_batches WHERE id = $1
+	`, batchID).Scan(&batchTenantID)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Hen batch not found")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+	if batchTenantID != tenantID {
+		respondWithError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	rows, err := database.DB.Query(`
+		SELECT id, batch_id, sale_date, count, price_per_hen, total_amount,
+		       notes, recorded_by_user_id, created_at
+		FROM hen_batch_sales
+		WHERE batch_id = $1
+		ORDER BY sale_date DESC, created_at DESC
+	`, batchID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch sale history")
+		return
+	}
+	defer rows.Close()
+
+	var sales []map[string]interface{}
+	for rows.Next() {
+		var (
+			id               int
+			bID              int
+			saleDate         time.Time
+			count            int
+			pricePerHen      float64
+			totalAmount      float64
+			notes            sql.NullString
+			recordedByUserID sql.NullInt64
+			createdAt        time.Time
+		)
+		if err := rows.Scan(&id, &bID, &saleDate, &count, &pricePerHen, &totalAmount, &notes, &recordedByUserID, &createdAt); err != nil {
+			continue
+		}
+
+		sale := map[string]interface{}{
+			"id":            id,
+			"batch_id":      bID,
+			"sale_date":     saleDate.Format("2006-01-02"),
+			"count":         count,
+			"price_per_hen": pricePerHen,
+			"total_amount":  totalAmount,
+			"created_at":    createdAt.Format(time.RFC3339),
+		}
+		if notes.Valid {
+			sale["notes"] = notes.String
+		}
+		if recordedByUserID.Valid {
+			sale["recorded_by_user_id"] = recordedByUserID.Int64
+		}
+		sales = append(sales, sale)
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    sales,
+	})
+}
