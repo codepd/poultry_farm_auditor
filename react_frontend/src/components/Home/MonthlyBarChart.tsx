@@ -32,9 +32,13 @@ interface MonthlyData {
 
 interface MonthlyBarChartProps {
   onMonthClick: (year: number, month: number) => void;
+  disableTooltipOnMobile?: boolean;
 }
 
-const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
+const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
+  onMonthClick,
+  disableTooltipOnMobile = false,
+}) => {
   const { isAuthenticated } = useAuth();
   const [data, setData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +159,8 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
     return `₹${value}`;
   };
 
+  const shouldShowTooltip = !(disableTooltipOnMobile && isMobile);
+
   return (
     <div className="monthly-bar-chart">
       <div className="chart-header">
@@ -187,7 +193,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
               tickFormatter={formatYAxis}
               label={isMobile ? undefined : { value: 'Amount (₹)', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
             />
-            <Tooltip content={<CustomTooltip />} />
+            {shouldShowTooltip && <Tooltip content={<CustomTooltip />} />}
             <Legend
               wrapperStyle={{ paddingTop: isMobile ? '6px' : '20px', fontSize: isMobile ? '11px' : '13px' }}
               iconType="square"

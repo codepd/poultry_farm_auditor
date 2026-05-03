@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { analyticsAPI, EnhancedMonthlySummary, transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
@@ -26,6 +26,7 @@ const COMMON_EXPENSES = [
 const OTHER_OPTION = 'Other';
 
 const ExpensesPage: React.FC = () => {
+  const detailsRef = useRef<HTMLDivElement | null>(null);
   const [expenses, setExpenses] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -165,6 +166,12 @@ const ExpensesPage: React.FC = () => {
   const handleMonthClick = (year: number, month: number) => {
     setSelectedYear(year);
     setSelectedMonth(month);
+    // On mobile, guide user to the details cards instead of relying on chart tooltip.
+    if (window.innerWidth <= 768) {
+      window.setTimeout(() => {
+        detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
   };
 
   const selectedMonthExpenses = expenses.filter((exp) => {
@@ -196,9 +203,9 @@ const ExpensesPage: React.FC = () => {
         </button>
       </div>
 
-      <MonthlyBarChart onMonthClick={handleMonthClick} />
+      <MonthlyBarChart onMonthClick={handleMonthClick} disableTooltipOnMobile />
 
-      <div className="expenses-summary">
+      <div className="expenses-summary" ref={detailsRef}>
         <div className="summary-card">
           <div className="summary-label">Selected Month</div>
           <div className="summary-value">
