@@ -164,6 +164,17 @@
   transition: box-shadow 0.2s;
 }
 
+.sold-badge {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .batch-card:hover {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
@@ -284,9 +295,11 @@
   border-top: 1px solid #eee;
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .mortality-btn,
+.sale-btn,
 .chart-btn {
   flex: 1;
   padding: 0.75rem;
@@ -305,6 +318,14 @@
 
 .mortality-btn:hover {
   background: #b71c1c;
+}
+
+.sale-btn {
+  background: #2e7d32;
+}
+
+.sale-btn:hover {
+  background: #1b5e20;
 }
 
 .chart-btn {

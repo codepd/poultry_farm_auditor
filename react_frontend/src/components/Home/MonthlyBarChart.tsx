@@ -23,6 +23,7 @@ interface MonthlyData {
   medicine_expense: number;
   labor_expense: number;
   other_expense: number;
+  other_income: number;
   total_discounts: number;
   total_tds: number;
   total_expense: number;
@@ -129,6 +130,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({ onMonthClick }) => {
             <div>• Medicine: ₹{data.medicine_expense.toLocaleString('en-IN')}</div>
             <div>• Labor: ₹{data.labor_expense.toLocaleString('en-IN')}</div>
             <div>• Other: ₹{data.other_expense.toLocaleString('en-IN')}</div>
+            <div>• Other Income: ₹{(data.other_income || 0).toLocaleString('en-IN')}</div>
             <div>• TDS: ₹{(data.total_tds || 0).toLocaleString('en-IN')}</div>
             <div>• Discounts: ₹{(data.total_discounts || 0).toLocaleString('en-IN')}</div>
           </div>

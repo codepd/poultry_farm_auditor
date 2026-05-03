@@ -185,6 +185,18 @@ export interface HenBatch {
   updated_at: string;
 }
 
+export interface HenBatchSale {
+  id: number;
+  batch_id: number;
+  sale_date: string;
+  count: number;
+  price_per_hen: number;
+  total_amount: number;
+  notes?: string;
+  recorded_by_user_id?: number;
+  created_at: string;
+}
+
 export interface Employee {
   id: number;
   tenant_id: string;
@@ -210,8 +222,25 @@ export interface EnhancedMonthlySummary {
   total_medicines: number;
   medicine_breakdown?: Array<{ type: string; quantity: number; amount: number }>;
   other_expenses?: number;
+  other_income?: number;
+  hen_sale_income?: number;
+  total_discounts?: number;
+  total_tds?: number;
   total_payments?: number;
   payment_breakdown?: Array<{ type: string; amount: number }>;
+  chick_stage_expense?: {
+    enabled: boolean;
+    batch_id?: number;
+    batch_name?: string;
+    monthly_total: number;
+    monthly_chick_stage: number;
+    monthly_grower_stage: number;
+    monthly_prelayer_stage: number;
+    total_till_25_weeks: number;
+    total_till_25_weeks_chick: number;
+    total_till_25_weeks_grower: number;
+    total_till_25_weeks_prelayer: number;
+  };
   net_profit: number;
   estimated_hens: number;
   actual_head_count?: number;
@@ -352,6 +381,20 @@ export const henBatchesAPI = {
   getMortalityHistory: async (batchId: number) => {
     const response = await api.get<{ success: boolean; data: MortalityRecord[] }>(`/hen-batches/${batchId}/mortality`);
     return response.data.data;
+  },
+  createSale: async (data: {
+    batch_id: number;
+    sale_date: string;
+    count: number;
+    price_per_hen: number;
+    notes?: string;
+  }) => {
+    const response = await api.post<{ success: boolean; message: string; data: HenBatchSale }>('/hen-batches/sales', data);
+    return response.data;
+  },
+  getSalesHistory: async (batchId: number) => {
+    const response = await api.get<{ success: boolean; data: HenBatchSale[] }>(`/hen-batches/${batchId}/sales`);
+    return response.data.data || [];
   },
 };
 

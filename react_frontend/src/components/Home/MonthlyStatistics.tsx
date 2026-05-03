@@ -191,6 +191,16 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
         </div>
 
         <div className="stat-card">
+          <h3>Other Income</h3>
+          <div className="stat-value">
+            {formatCurrency(data.other_income || 0)}
+          </div>
+          <div className="stat-note" style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+            Includes hen sale income
+          </div>
+        </div>
+
+        <div className="stat-card">
           <h3>Payments Received</h3>
           <div
             className="stat-value clickable"

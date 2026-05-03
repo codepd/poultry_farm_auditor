@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { henBatchesAPI, HenBatch } from '../services/api';
+import { henBatchesAPI, HenBatch, HenBatchSale } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../hooks/useTenant';
 import { formatDateForTenant, calculateAgeFromDate } from '../utils/dateUtils';
@@ -25,6 +25,15 @@ const HenBatchesPage: React.FC = () => {
     reason: '',
     notes: '',
   });
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [saleBatchId, setSaleBatchId] = useState<number | null>(null);
+  const [saleFormData, setSaleFormData] = useState({
+    sale_date: new Date().toISOString().split('T')[0],
+    count: 0,
+    price_per_hen: 0,
+    notes: '',
+  });
+  const [salesByBatch, setSalesByBatch] = useState<Record<number, HenBatchSale[]>>({});
   const [formData, setFormData] = useState({
     batch_name: '',
     initial_count: 0,
@@ -48,11 +57,21 @@ const HenBatchesPage: React.FC = () => {
       setError('');
       const data = await henBatchesAPI.getHenBatches();
       // Ensure data is always an array, never null or undefined
-      setBatches(Array.isArray(data) ? data : []);
+      const normalizedBatches = Array.isArray(data) ? data : [];
+      setBatches(normalizedBatches);
+
+      const salesEntries = await Promise.all(
+        normalizedBatches.map(async (batch) => {
+          const sales = await henBatchesAPI.getSalesHistory(batch.id);
+          return [batch.id, sales] as const;
+        })
+      );
+      setSalesByBatch(Object.fromEntries(salesEntries));
     } catch (err: any) {
       setError('Failed to load hen batches');
       console.error(err);
       setBatches([]); // Set to empty array on error
+      setSalesByBatch({});
     } finally {
       setLoading(false);
     }
@@ -180,6 +199,55 @@ const HenBatchesPage: React.FC = () => {
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to record mortality');
     }
+  };
+
+  const handleAddSale = (batchId: number) => {
+    setSaleBatchId(batchId);
+    setSaleFormData({
+      sale_date: new Date().toISOString().split('T')[0],
+      count: 0,
+      price_per_hen: 0,
+      notes: '',
+    });
+    setShowSaleForm(true);
+  };
+
+  const handleSaleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saleBatchId) return;
+
+    try {
+      await henBatchesAPI.createSale({
+        batch_id: saleBatchId,
+        sale_date: saleFormData.sale_date,
+        count: saleFormData.count,
+        price_per_hen: saleFormData.price_per_hen,
+        notes: saleFormData.notes || undefined,
+      });
+      setShowSaleForm(false);
+      setSaleBatchId(null);
+      fetchBatches();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to record sale');
+    }
+  };
+
+  const getVisibleRecentSale = (batchId: number) => {
+    const sales = salesByBatch[batchId] || [];
+    if (sales.length === 0) return null;
+
+    const latestSale = [...sales].sort((a, b) => b.sale_date.localeCompare(a.sale_date))[0];
+    const saleDate = new Date(latestSale.sale_date);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - saleDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 21) {
+      return latestSale;
+    }
+    return null;
+  };
+
+  const getTotalSold = (batchId: number) => {
+    return (salesByBatch[batchId] || []).reduce((sum, sale) => sum + (sale.count || 0), 0);
   };
 
   // Safely calculate total count, handling null/undefined batches
@@ -393,6 +461,77 @@ const HenBatchesPage: React.FC = () => {
       )}
 
       {/* Mortality Chart Modal */}
+      {showSaleForm && saleBatchId && (
+        <div className="modal-overlay" onClick={() => setShowSaleForm(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Mark Batch As Sold</h2>
+              <button className="close-btn" onClick={() => setShowSaleForm(false)}>
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleSaleSubmit}>
+              <div className="form-group">
+                <label>Sale Date</label>
+                <input
+                  type="date"
+                  value={saleFormData.sale_date}
+                  onChange={(e) => setSaleFormData({ ...saleFormData, sale_date: e.target.value })}
+                  title="Sale date"
+                  aria-label="Sale date"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Sold Count</label>
+                <input
+                  type="number"
+                  value={saleFormData.count ?? ''}
+                  onChange={(e) => setSaleFormData({ ...saleFormData, count: parseInt(e.target.value || '0', 10) || 0 })}
+                  min="1"
+                  title="Sold count"
+                  aria-label="Sold count"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Price Per Hen (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={saleFormData.price_per_hen ?? ''}
+                  onChange={(e) => setSaleFormData({ ...saleFormData, price_per_hen: parseFloat(e.target.value || '0') || 0 })}
+                  min="0"
+                  title="Price per hen"
+                  aria-label="Price per hen"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Notes (Optional)</label>
+                <textarea
+                  value={saleFormData.notes}
+                  onChange={(e) => setSaleFormData({ ...saleFormData, notes: e.target.value })}
+                  rows={3}
+                  placeholder="Sale details..."
+                  title="Sale notes"
+                  aria-label="Sale notes"
+                />
+              </div>
+              <div className="form-actions">
+                <button type="submit" className="btn-primary">
+                  Save Sale
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setShowSaleForm(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mortality Chart Modal */}
       {showMortalityChart && selectedBatchId && (
         <MortalityChart
           batchId={selectedBatchId}
@@ -415,6 +554,12 @@ const HenBatchesPage: React.FC = () => {
         <div className="batches-grid">
           {batches.map((batch) => (
             <div key={batch.id} className="batch-card">
+              {getVisibleRecentSale(batch.id) && (
+                <div className="sold-badge">
+                  SOLD {getVisibleRecentSale(batch.id)?.count?.toLocaleString()} on{' '}
+                  {formatDateForTenant(getVisibleRecentSale(batch.id)!.sale_date, timezone, dateFormat)}
+                </div>
+              )}
               <div className="batch-header">
                 <h3>{batch.batch_name}</h3>
                 <div className="batch-header-right">
@@ -452,10 +597,14 @@ const HenBatchesPage: React.FC = () => {
                   <span className="value">{batch.initial_count.toLocaleString()}</span>
                 </div>
                 <div className="detail-item">
-                  <span className="label">Mortality:</span>
+                  <span className="label">Reduction (Mortality + Sold):</span>
                   <span className="value mortality">
                     {(batch.initial_count - batch.current_count).toLocaleString()}
                   </span>
+                </div>
+                <div className="detail-item">
+                  <span className="label">Total Sold:</span>
+                  <span className="value">{getTotalSold(batch.id).toLocaleString()}</span>
                 </div>
                 <div className="detail-item">
                   <span className="label">Date Added:</span>
@@ -471,6 +620,13 @@ const HenBatchesPage: React.FC = () => {
                       title="Record Mortality"
                     >
                       📉 Record Mortality
+                    </button>
+                    <button
+                      onClick={() => handleAddSale(batch.id)}
+                      className="sale-btn"
+                      title="Mark as Sold"
+                    >
+                      💰 Mark as Sold
                     </button>
                     <button
                       onClick={() => {

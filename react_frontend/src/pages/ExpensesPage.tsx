@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { transactionsAPI, Transaction } from '../services/api';
+import { analyticsAPI, EnhancedMonthlySummary, transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
 import './ExpensesPage.css';
@@ -30,6 +30,9 @@ const ExpensesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [monthlySummary, setMonthlySummary] = useState<EnhancedMonthlySummary | null>(null);
   const [formData, setFormData] = useState({
     transaction_date: new Date().toISOString().split('T')[0],
     category: 'OTHER',
@@ -46,6 +49,18 @@ const ExpensesPage: React.FC = () => {
   useEffect(() => {
     fetchExpenses();
   }, []);
+
+  useEffect(() => {
+    const fetchMonthlySummary = async () => {
+      try {
+        const summary = await analyticsAPI.getEnhancedMonthlySummary(selectedYear, selectedMonth);
+        setMonthlySummary(summary);
+      } catch (err) {
+        console.error('Failed to load monthly summary', err);
+      }
+    };
+    fetchMonthlySummary();
+  }, [selectedYear, selectedMonth]);
 
   const fetchExpenses = async () => {
     try {
@@ -148,14 +163,29 @@ const ExpensesPage: React.FC = () => {
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
 
   const handleMonthClick = (year: number, month: number) => {
-    // Filter expenses to show selected month
-    const filtered = expenses.filter(exp => {
-      const expDate = new Date(exp.transaction_date);
-      return expDate.getFullYear() === year && expDate.getMonth() + 1 === month;
-    });
-    // Could navigate or show details - for now just log
-    console.log(`Selected month: ${year}-${month}, Expenses:`, filtered);
+    setSelectedYear(year);
+    setSelectedMonth(month);
   };
+
+  const selectedMonthExpenses = expenses.filter((exp) => {
+    const expenseDate = new Date(exp.transaction_date);
+    return expenseDate.getFullYear() === selectedYear && expenseDate.getMonth() + 1 === selectedMonth;
+  });
+
+  const recurringByType = selectedMonthExpenses.reduce(
+    (acc, exp) => {
+      const name = (exp.item_name || '').toUpperCase();
+      if (name.includes('LABOR')) acc.labor += exp.amount;
+      if (name.includes('ELECTRICITY')) acc.electricity += exp.amount;
+      if (name.includes('EMI')) acc.emi += exp.amount;
+      return acc;
+    },
+    { labor: 0, electricity: 0, emi: 0 }
+  );
+
+  const oneTimeExpenses = selectedMonthExpenses.filter((exp) =>
+    (exp.item_name || '').toUpperCase().includes('ONE-TIME')
+  );
 
   return (
     <div className="expenses-page">
@@ -167,6 +197,89 @@ const ExpensesPage: React.FC = () => {
       </div>
 
       <MonthlyBarChart onMonthClick={handleMonthClick} />
+
+      <div className="expenses-summary">
+        <div className="summary-card">
+          <div className="summary-label">Selected Month</div>
+          <div className="summary-value">
+            {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+          </div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Labor (Monthly)</div>
+          <div className="summary-value">₹{recurringByType.labor.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Electricity (Monthly)</div>
+          <div className="summary-value">₹{recurringByType.electricity.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">EMI (Monthly)</div>
+          <div className="summary-value">₹{recurringByType.emi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        </div>
+      </div>
+
+      {monthlySummary?.chick_stage_expense?.enabled && (
+        <div className="add-expense-form">
+          <h2>Chick Rearing Expense (Till 25 Weeks)</h2>
+          <div className="form-row">
+            <div className="summary-card">
+              <div className="summary-label">Batch</div>
+              <div className="summary-value">{monthlySummary.chick_stage_expense.batch_name || '-'}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">This Month Total</div>
+              <div className="summary-value">
+                ₹{(monthlySummary.chick_stage_expense.monthly_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">Total Till 25 Weeks</div>
+              <div className="summary-value">
+                ₹{(monthlySummary.chick_stage_expense.total_till_25_weeks || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="summary-card">
+              <div className="summary-label">Chick Stage</div>
+              <div className="summary-value">
+                ₹{(monthlySummary.chick_stage_expense.total_till_25_weeks_chick || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">Grower Stage</div>
+              <div className="summary-value">
+                ₹{(monthlySummary.chick_stage_expense.total_till_25_weeks_grower || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">Pre-layer Stage</div>
+              <div className="summary-value">
+                ₹{(monthlySummary.chick_stage_expense.total_till_25_weeks_prelayer || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {oneTimeExpenses.length > 0 && (
+        <div className="add-expense-form">
+          <h2>One-time Expenses ({new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short', year: 'numeric' })})</h2>
+          <div className="expenses-mobile-list">
+            {oneTimeExpenses.map((expense) => (
+              <div key={expense.id} className="expense-mobile-card">
+                <div className="expense-mobile-top">
+                  <div className="expense-mobile-item">{expense.item_name || '-'}</div>
+                </div>
+                <div className="expense-mobile-amount">
+                  ₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showAddForm && (
         <div className="add-expense-form">
