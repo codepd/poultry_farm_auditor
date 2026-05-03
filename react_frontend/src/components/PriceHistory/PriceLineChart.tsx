@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import './PriceLineChart.css';
+import { parseDateValue } from '../../utils/dateUtils';
 
 interface PriceHistory {
   id: number;
@@ -51,7 +52,7 @@ const groupFeedPricesByWeek = (prices: PriceHistory[]): PriceHistory[] => {
 
   prices.forEach(price => {
     try {
-      const priceDate = new Date(price.price_date);
+      const priceDate = parseDateValue(price.price_date);
       if (isNaN(priceDate.getTime())) {
         console.warn('Invalid date in price:', price.price_date);
         return;
@@ -282,7 +283,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
   if (isYearOnYear) {
     processedPrices = filteredPrices.filter(p => {
       try {
-        const priceDate = new Date(p.price_date);
+        const priceDate = parseDateValue(p.price_date);
         // Handle both date strings and Date objects
         if (isNaN(priceDate.getTime())) {
           return false; // Invalid date, exclude
@@ -332,7 +333,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
       const yearItemPrices = new Map<number, Map<string, PriceHistory[]>>();
 
       processedPrices.forEach(price => {
-        const year = new Date(price.price_date).getFullYear();
+        const year = parseDateValue(price.price_date).getFullYear();
         if (!yearItemPrices.has(year)) {
           yearItemPrices.set(year, new Map());
         }
@@ -348,7 +349,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
         itemMap.forEach((prices, itemName) => {
           const filledPrices = groupFeedPricesByWeek(prices);
           filledPrices.forEach(price => {
-            const date = new Date(price.price_date);
+            const date = parseDateValue(price.price_date);
             const startOfYear = new Date(date.getFullYear(), 0, 1);
             const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
             const period = Math.ceil((days + startOfYear.getDay() + 1) / 7);
@@ -368,8 +369,9 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     } else {
       // For EGG, use original logic
       processedPrices.forEach(price => {
-        const year = new Date(price.price_date).getFullYear();
-        const period = new Date(price.price_date).getMonth() + 1; // 1-12
+        const priceDate = parseDateValue(price.price_date);
+        const year = priceDate.getFullYear();
+        const period = priceDate.getMonth() + 1; // 1-12
 
         if (!itemYearMonthMap.has(price.item_name)) {
           itemYearMonthMap.set(price.item_name, new Map());
@@ -488,7 +490,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     });
 
     itemsMap.forEach((prices, itemName) => {
-      prices.sort((a, b) => new Date(a.price_date).getTime() - new Date(b.price_date).getTime());
+      prices.sort((a, b) => parseDateValue(a.price_date).getTime() - parseDateValue(b.price_date).getTime());
     });
 
     const allDates = Array.from(new Set(finalPrices.map(p => p.price_date)))
@@ -505,7 +507,7 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
     }
 
     chartData = allDates.map(date => {
-      const dateObj = new Date(date);
+      const dateObj = parseDateValue(date);
       let dateLabel: string;
 
       if (priceType === 'EGG') {

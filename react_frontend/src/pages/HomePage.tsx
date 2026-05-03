@@ -4,6 +4,7 @@ import MonthlyStatistics from '../components/Home/MonthlyStatistics';
 import YearlyStatistics from '../components/Home/YearlyStatistics';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
 import HenAgeDisplay from '../components/Home/HenAgeDisplay';
+import DateRangeSummaryPanel from '../components/Home/DateRangeSummary';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
@@ -26,6 +27,8 @@ const HomePage: React.FC = () => {
       <HenAgeDisplay />
 
       <MultiCategoryEntry />
+
+      <DateRangeSummaryPanel />
 
       <div className="statistics-section">
         {viewMode === 'monthly' && <MonthlyBarChart onMonthClick={handleMonthClick} />}
@@ -51,6 +54,8 @@ const HomePage: React.FC = () => {
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                title="Select year"
+                aria-label="Select year"
               >
                 {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((year) => (
                   <option key={year} value={year}>
@@ -61,6 +66,8 @@ const HomePage: React.FC = () => {
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                title="Select month"
+                aria-label="Select month"
               >
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                   <option key={month} value={month}>

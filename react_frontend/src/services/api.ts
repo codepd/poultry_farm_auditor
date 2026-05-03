@@ -123,6 +123,7 @@ export interface Tenant {
   number_format: string;
   date_format: string;
   timezone: string;
+  financial_year_start_month?: number;
   capacity?: number;
   age_category_chick_max_weeks?: number;
   age_category_grower_max_weeks?: number;
@@ -249,7 +250,20 @@ export interface EnhancedMonthlySummary {
 }
 
 export interface YearlySummary {
+  period_type?: 'calendar' | 'financial';
+  period_label?: string;
+  period_start?: string;
+  period_end?: string;
+  financial_year_start_month?: number;
   year: number;
+  total_sales: number;
+  total_expense: number;
+  net_profit: number;
+}
+
+export interface DateRangeSummary {
+  start_date: string;
+  end_date: string;
   total_sales: number;
   total_expense: number;
   net_profit: number;
@@ -452,6 +466,22 @@ export const analyticsAPI = {
   },
   getAllYearsSummary: async () => {
     const response = await api.get<{ success: boolean; data: YearlySummary[] }>('/analytics/all-years-summary');
+    return response.data.data;
+  },
+  getYearlyPeriodSummary: async (periodType: 'calendar' | 'financial', fyStartMonth?: number) => {
+    const params: Record<string, any> = { period_type: periodType };
+    if (fyStartMonth) params.fy_start_month = fyStartMonth;
+    const response = await api.get<{ success: boolean; data: YearlySummary[] }>(
+      '/analytics/yearly-period-summary',
+      { params }
+    );
+    return response.data.data;
+  },
+  getDateRangeSummary: async (startDate: string, endDate: string) => {
+    const response = await api.get<{ success: boolean; data: DateRangeSummary }>(
+      '/analytics/date-range-summary',
+      { params: { start_date: startDate, end_date: endDate } }
+    );
     return response.data.data;
   },
   getMonthlyBreakdown: async (year: number, month: number, category: string) => {

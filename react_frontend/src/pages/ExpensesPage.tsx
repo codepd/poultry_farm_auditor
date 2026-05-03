@@ -1,7 +1,7 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { analyticsAPI, EnhancedMonthlySummary, transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
-import MonthlyBarChart from '../components/Home/MonthlyBarChart';
+import { parseDateValue } from '../utils/dateUtils';
 import './ExpensesPage.css';
 
 // Common expense items
@@ -24,9 +24,22 @@ const COMMON_EXPENSES = [
 ];
 
 const OTHER_OPTION = 'Other';
+const MONTH_OPTIONS = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' },
+];
 
 const ExpensesPage: React.FC = () => {
-  const detailsRef = useRef<HTMLDivElement | null>(null);
   const [expenses, setExpenses] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -163,21 +176,35 @@ const ExpensesPage: React.FC = () => {
 
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
 
-  const handleMonthClick = (year: number, month: number) => {
-    setSelectedYear(year);
-    setSelectedMonth(month);
-    // On mobile, guide user to the details cards instead of relying on chart tooltip.
-    if (window.innerWidth <= 768) {
-      window.setTimeout(() => {
-        detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
-    }
-  };
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    years.add(new Date().getFullYear());
+    expenses.forEach((exp) => {
+      years.add(parseDateValue(exp.transaction_date).getFullYear());
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [expenses]);
 
   const selectedMonthExpenses = expenses.filter((exp) => {
-    const expenseDate = new Date(exp.transaction_date);
+    const expenseDate = parseDateValue(exp.transaction_date);
     return expenseDate.getFullYear() === selectedYear && expenseDate.getMonth() + 1 === selectedMonth;
   });
+
+  const selectedMonthTotal = selectedMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const selectedMonthCount = selectedMonthExpenses.length;
+  const selectedMonthItemBreakdown = useMemo(() => {
+    const grouped = new Map<string, { item_name: string; total_amount: number; count: number }>();
+
+    selectedMonthExpenses.forEach((expense) => {
+      const key = (expense.item_name || 'Uncategorized').trim() || 'Uncategorized';
+      const existing = grouped.get(key) || { item_name: key, total_amount: 0, count: 0 };
+      existing.total_amount += expense.amount || 0;
+      existing.count += 1;
+      grouped.set(key, existing);
+    });
+
+    return Array.from(grouped.values()).sort((a, b) => b.total_amount - a.total_amount);
+  }, [selectedMonthExpenses]);
 
   const recurringByType = selectedMonthExpenses.reduce(
     (acc, exp) => {
@@ -203,14 +230,56 @@ const ExpensesPage: React.FC = () => {
         </button>
       </div>
 
-      <MonthlyBarChart onMonthClick={handleMonthClick} disableTooltipOnMobile />
+      <div className="add-expense-form">
+        <h2>Month Selection</h2>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Year</label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+              title="Select year"
+              aria-label="Select year"
+            >
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Month</label>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+              title="Select month"
+              aria-label="Select month"
+            >
+              {MONTH_OPTIONS.map((month) => (
+                <option key={month.value} value={month.value}>
+                  {month.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
-      <div className="expenses-summary" ref={detailsRef}>
+      <div className="expenses-summary">
         <div className="summary-card">
           <div className="summary-label">Selected Month</div>
           <div className="summary-value">
             {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
           </div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Month Total</div>
+          <div className="summary-value">₹{selectedMonthTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">Month Transactions</div>
+          <div className="summary-value">{selectedMonthCount}</div>
         </div>
         <div className="summary-card">
           <div className="summary-label">Labor (Monthly)</div>
@@ -287,6 +356,53 @@ const ExpensesPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="add-expense-form">
+        <h2>
+          Monthly Expense Breakdown ({new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short', year: 'numeric' })})
+        </h2>
+        {selectedMonthItemBreakdown.length === 0 ? (
+          <div className="no-data">No expense entries in this month.</div>
+        ) : (
+          <>
+            <div className="expenses-mobile-list">
+              {selectedMonthItemBreakdown.map((item) => (
+                <div key={item.item_name} className="expense-mobile-card">
+                  <div className="expense-mobile-top">
+                    <div className="expense-mobile-item">{item.item_name}</div>
+                  </div>
+                  <div className="expense-mobile-amount">
+                    ₹{item.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="expense-mobile-meta">
+                    <span>{item.count} transaction{item.count > 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="expenses-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item / Description</th>
+                    <th>Transactions</th>
+                    <th>Total Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedMonthItemBreakdown.map((item) => (
+                    <tr key={item.item_name}>
+                      <td>{item.item_name}</td>
+                      <td>{item.count}</td>
+                      <td>₹{item.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
 
       {showAddForm && (
         <div className="add-expense-form">
@@ -448,12 +564,12 @@ const ExpensesPage: React.FC = () => {
 
       {loading ? (
         <div className="loading">Loading expenses...</div>
-      ) : expenses.length === 0 ? (
+      ) : selectedMonthExpenses.length === 0 ? (
         <div className="no-data">No expenses found. Add your first expense above.</div>
       ) : (
         <div className="expenses-results">
           <div className="expenses-mobile-list">
-            {expenses.map((expense) => (
+            {selectedMonthExpenses.map((expense) => (
               <div key={expense.id} className="expense-mobile-card">
                 <div className="expense-mobile-top">
                   <div className="expense-mobile-item">{expense.item_name || '-'}</div>
@@ -483,7 +599,7 @@ const ExpensesPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {expenses.map((expense) => (
+                {selectedMonthExpenses.map((expense) => (
                   <tr key={expense.id}>
                     <td>{new Date(expense.transaction_date).toLocaleDateString()}</td>
                     <td>{expense.item_name || '-'}</td>

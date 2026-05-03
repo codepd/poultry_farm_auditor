@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import PriceLineChart from '../components/PriceHistory/PriceLineChart';
+import { parseDateValue } from '../utils/dateUtils';
 import './PriceHistoryPage.css';
 
 interface PriceHistory {
@@ -41,7 +42,7 @@ const PriceHistoryPage: React.FC = () => {
   // Get available years from prices
   const availableYears = React.useMemo(() => {
     const years = Array.from(
-      new Set(prices.map(p => new Date(p.price_date).getFullYear()))
+      new Set(prices.map(p => parseDateValue(p.price_date).getFullYear()))
     ).sort((a, b) => b - a); // Most recent first
     return years;
   }, [prices]);
@@ -136,9 +137,9 @@ const PriceHistoryPage: React.FC = () => {
 
   const formatPriceDate = (price: PriceHistory) => {
     if (price.id === 0 && price.price_date.endsWith('-01')) {
-      return new Date(price.price_date).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+      return parseDateValue(price.price_date).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     }
-    return new Date(price.price_date).toLocaleDateString();
+    return parseDateValue(price.price_date).toLocaleDateString();
   };
 
   const formatCreatedAt = (price: PriceHistory) => (
@@ -513,7 +514,7 @@ const PriceHistoryPage: React.FC = () => {
                   const [, itemName] = key.split('-');
                   const sortedItems = items
                     .slice()
-                    .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime());
+                    .sort((a, b) => parseDateValue(b.price_date).getTime() - parseDateValue(a.price_date).getTime());
                   return (
                     <div key={key} className="price-group">
                       <h3>
@@ -626,7 +627,7 @@ const PriceHistoryPage: React.FC = () => {
                   const [, itemName] = key.split('-');
                   const sortedItems = items
                     .slice()
-                    .sort((a, b) => new Date(b.price_date).getTime() - new Date(a.price_date).getTime());
+                    .sort((a, b) => parseDateValue(b.price_date).getTime() - parseDateValue(a.price_date).getTime());
                   return (
                     <div key={key} className="price-group">
                       <h3>{itemName}</h3>

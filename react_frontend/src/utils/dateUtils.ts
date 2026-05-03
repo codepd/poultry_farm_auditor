@@ -3,6 +3,23 @@
  */
 
 /**
+ * Parse date values safely for date-only strings.
+ * Prevents timezone shifts when input is in YYYY-MM-DD format.
+ */
+export function parseDateValue(date: string | Date): Date {
+  if (date instanceof Date) {
+    return date;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  }
+
+  return new Date(date);
+}
+
+/**
  * Format a date string or Date object according to the tenant's timezone and date format
  * @param date - Date string (ISO format) or Date object
  * @param timezone - IANA timezone identifier (e.g., 'Asia/Kolkata')
@@ -17,20 +34,7 @@ export function formatDateForTenant(
   try {
     let dateObj: Date;
     
-    if (typeof date === 'string') {
-      // If it's a date-only string (YYYY-MM-DD), parse it directly to avoid timezone conversion issues
-      // JavaScript's Date constructor treats "YYYY-MM-DD" as UTC midnight, which can cause day shifts
-      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        const [year, month, day] = date.split('-').map(Number);
-        // Create date at noon UTC to avoid day shift when converting to timezone
-        // This ensures the date stays the same regardless of timezone
-        dateObj = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-      } else {
-        dateObj = new Date(date);
-      }
-    } else {
-      dateObj = date;
-    }
+    dateObj = parseDateValue(date);
     
     // Use Intl.DateTimeFormat for timezone-aware formatting
     const formatter = new Intl.DateTimeFormat('en-US', {
