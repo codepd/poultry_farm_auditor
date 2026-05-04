@@ -1852,9 +1852,12 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 
 	var monthlyData []MonthlyData
 
-	// Get last 12 months
+	// Get last 12 months anchored to month-start in UTC.
+	// Anchoring avoids month-skips at month-end (e.g. Mar 31 -> Mar 03 when subtracting one month).
+	nowUTC := time.Now().UTC()
+	currentMonthStart := time.Date(nowUTC.Year(), nowUTC.Month(), 1, 0, 0, 0, 0, time.UTC)
 	for i := 11; i >= 0; i-- {
-		date := time.Now().AddDate(0, -i, 0)
+		date := currentMonthStart.AddDate(0, -i, 0)
 		year := date.Year()
 		month := int(date.Month())
 

@@ -99,8 +99,10 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
 
   // Format data for Recharts - show full month names and add click handlers
   const chartData = data.map((item) => {
-    const date = new Date(item.year, item.month - 1);
-    const monthFullName = date.toLocaleString('default', { month: 'long' });
+    const monthFullNameFromAPI = (item.month_name || '').trim();
+    const fallbackMonthName = new Date(Date.UTC(item.year, item.month - 1, 1))
+      .toLocaleString('default', { month: 'long' });
+    const monthFullName = monthFullNameFromAPI || fallbackMonthName;
     return {
       ...item,
       monthLabel: `${monthFullName.substring(0, 3)}\n${item.year}`,
