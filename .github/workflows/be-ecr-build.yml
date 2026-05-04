@@ -19,6 +19,7 @@ env:
   EKS_CLUSTER_NAME: kolipannai-dev-eks
   K8S_NAMESPACE: poultry-dev
   K8S_DEPLOYMENT: go-api
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-and-push:

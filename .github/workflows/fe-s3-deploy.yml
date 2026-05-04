@@ -16,6 +16,7 @@ env:
   S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
   CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
   REACT_APP_API_URL: https://api-dev.mykolipannai.com/api
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-and-deploy:
