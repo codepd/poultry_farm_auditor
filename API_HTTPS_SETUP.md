@@ -113,6 +113,6 @@ You should see `OK` response.
 
 ## Notes
 
-- The ALB hosted zone ID for `ap-south-1` is `Z1D633PJN98FT9` (constant for all ALBs in this region)
+- The ALB hosted zone ID is **per-ALB** (CanonicalHostedZoneId). Get it with: `aws elbv2 describe-load-balancers --region ap-south-1 --query "LoadBalancers[?contains(DNSName,'goapiing')].CanonicalHostedZoneId" --output text`
 - Health checks use HTTP (port 80) even though main traffic is HTTPS
 - SSL redirect is enabled, so HTTP requests are automatically redirected to HTTPS

@@ -176,12 +176,15 @@ BEGIN
                     AND EXTRACT(YEAR FROM transaction_date) = t_year
                     AND EXTRACT(MONTH FROM transaction_date) = t_month
             ),
+            -- Income (e.g. hen sales) must be added; only OTHER EXPENSE is subtracted.
+            -- PAYMENT / TDS / DISCOUNT are handled separately (payments do not affect P&L).
             net_profit = (
                 SELECT COALESCE(SUM(CASE WHEN category = 'EGG' AND transaction_type = 'SALE' THEN amount ELSE 0 END), 0) +
-                       COALESCE(SUM(CASE WHEN transaction_type = 'DISCOUNT' THEN amount ELSE 0 END), 0) -
+                       COALESCE(SUM(CASE WHEN transaction_type = 'DISCOUNT' THEN amount ELSE 0 END), 0) +
+                       COALESCE(SUM(CASE WHEN transaction_type = 'INCOME' THEN amount ELSE 0 END), 0) -
                        COALESCE(SUM(CASE WHEN category = 'FEED' AND transaction_type = 'PURCHASE' THEN amount ELSE 0 END), 0) -
                        COALESCE(SUM(CASE WHEN category = 'MEDICINE' THEN amount ELSE 0 END), 0) -
-                       COALESCE(SUM(CASE WHEN category = 'OTHER' AND transaction_type NOT IN ('PAYMENT', 'TDS', 'DISCOUNT') THEN amount ELSE 0 END), 0) -
+                       COALESCE(SUM(CASE WHEN category = 'OTHER' AND transaction_type = 'EXPENSE' THEN amount ELSE 0 END), 0) -
                        COALESCE(SUM(CASE WHEN transaction_type = 'TDS' THEN amount ELSE 0 END), 0)
                 FROM transactions
                 WHERE tenant_id = t_tenant_id

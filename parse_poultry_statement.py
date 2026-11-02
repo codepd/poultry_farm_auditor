@@ -20,9 +20,11 @@ from datetime import datetime
 
 # --- configuration / known keywords (tweak if you want) ---
 EGG_KEYWORDS = ["LARGE EGG", "MEDIUM EGG", "SMALL EGG", "CORRECT EGG", "EXPORT EGG", "CORRECT SIZE"]
-FEED_KEYWORDS = ["LAYER MASH", "GROWER MASH", "PRE LAYER MASH", "LAYER MASH BULK", "GROWER MASH BULK", "PRE LAYER MASH BULK"]
+FEED_KEYWORDS = ["LAYER MASH", "GROWER MASH", "PRE LAYER MASH", "LAYER MASH BULK", "GROWER MASH BULK", "PRE LAYER MASH BULK",
+                 "SYLO", "LCC", "LAYER CHICKS CRUMBLE"]
 MEDICINES_KNOWN = ["D3 FORTE", "VETMULIN", "OXYCYCLINE", "TIAZIN", "BPPS FORTE", "CTC", "SHELL GRIT",
-                   "ROVIMIX", "CHOLIMARIN", "ZAGROMIN", "G PRO NATURO", "NECROVET", "TOXOL", "FRA C12 DRY", "CALCI ROYAL FS", "CALDLIV FS", "RESPAFEED", "VENTRIM (VITAL)"]
+                   "ROVIMIX", "CHOLIMARIN", "ZAGROMIN", "G PRO NATURO", "NECROVET", "TOXOL", "FRA C12 DRY", "CALCI ROYAL FS", "CALDLIV FS", "RESPAFEED", "VENTRIM (VITAL)",
+                   "SOYA", "FARM GRIT"]
 
 # Map supplement rates to known medicines when PDFs list generic "Poultry Feed Suppliments"
 MEDICINE_PRICE_MAP = {
@@ -37,10 +39,13 @@ MEDICINE_PRICE_MAP = {
     650.0: "ROVIMIX",
     100.0: "CHOLIMARIN",
     260.0: "ZAGROMIN",
+    40.0: "SOYA",
+    265.0: "CTC",
 }
 
 NUM_RE = re.compile(r'[\d,]+\.\d+|[\d,]+')
 DATE_HDR_RE = re.compile(r'^(\d{1,2}-[A-Za-z]{3}-\d{2,4})\b')
+DISCOUNT_MULT_RE = re.compile(r'([\d,]+(?:\.\d+)?)\s*[xX\*]\s*([\d,]+(?:\.\d+)?)')
 
 def format_indian_number(num, decimals=2):
     """Format a number in Indian numbering system (lakhs/crores format).
@@ -146,7 +151,7 @@ def parse_item_line(line):
         rate_num = rate_tok.split('/')[0]
         rate = clean_number(rate_num)
         j = rate_idx - 1
-        if j >= 0 and tokens[j].lower() in ('kgs', 'kg', 'nos', 'no', 'nos.'):
+        if j >= 0 and tokens[j].lower() in ('kgs', 'kg', 'nos', 'no', 'nos.', 'bag', 'bags'):
             unit = tokens[j]
             if j - 1 >= 0 and NUM_RE.search(tokens[j-1]):
                 qty = clean_number(tokens[j-1])
@@ -164,7 +169,7 @@ def parse_item_line(line):
                 item_name = ' '.join(tokens[:rate_idx - 1])
             else:
                 for k in range(rate_idx-1, -1, -1):
-                    if tokens[k].lower() in ('kgs','kg','nos','no','nos.'):
+                    if tokens[k].lower() in ('kgs','kg','nos','no','nos.','bag','bags'):
                         unit = tokens[k]
                         if k-1 >= 0 and NUM_RE.search(tokens[k-1]):
                             qty = clean_number(tokens[k-1])
@@ -177,7 +182,7 @@ def parse_item_line(line):
     else:
         unit_idx = None
         for i, t in enumerate(tokens):
-            if t.lower() in ('kgs','kg','nos','no','nos.'):
+            if t.lower() in ('kgs','kg','nos','no','nos.','bag','bags'):
                 unit_idx = i
                 break
         if unit_idx is not None:
@@ -305,6 +310,25 @@ def apply_supplement_price_override(parsed):
     return None
 
 
+def extract_discount_amount(line):
+    """Extract discount amount, preferring qty*rate patterns like '1791 x 40 = 71640'."""
+    match = DISCOUNT_MULT_RE.search(line)
+    if match:
+        qty = clean_number(match.group(1))
+        rate = clean_number(match.group(2))
+        if qty is not None and rate is not None:
+            return round(float(qty) * float(rate), 2)
+    tokens = re.findall(NUM_RE, line)
+    if not tokens:
+        return None
+    # Prefer the largest numeric token to avoid picking a rate value
+    values = [clean_number(t) for t in tokens]
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+    return max(values)
+
+
 def determine_category(item_name, unit=None, auto_correct=False):
     """Return (category, note) applying optional heuristics.
     If auto_correct is True, attempt to fix common misclassifications (e.g., 'LARGE' as egg when unit is NOS).
@@ -323,6 +347,54 @@ def determine_category(item_name, unit=None, auto_correct=False):
                 note = 'auto_classified_to_egg'
     return base, note
 
+def extract_provider_info(all_lines):
+    """Extract feed provider / egg buyer details from the PDF header lines."""
+    provider_name = None
+    provider_contact = None
+    provider_email = None
+    account_holder = None
+    ledger_period = None
+
+    for idx, line in enumerate(all_lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r'^\d{1,2}-[A-Za-z]{3}-\d{2,4}\s+to\s+\d{1,2}-[A-Za-z]{3}-\d{2,4}', stripped, re.IGNORECASE):
+            ledger_period = stripped
+            continue
+        if DATE_HDR_RE.match(stripped):
+            break
+        up = stripped.upper()
+        if 'LEDGER ACCOUNT' in up:
+            if idx > 0:
+                prev = all_lines[idx - 1].strip()
+                if prev and not DATE_HDR_RE.match(prev) and 'E-MAIL' not in prev.upper() and 'CONTACT' not in prev.upper() and 'CELL' not in prev.upper():
+                    account_holder = prev
+            continue
+        if up.startswith('E-MAIL') or up.startswith('EMAIL'):
+            provider_email = stripped.split(':', 1)[-1].strip() if ':' in stripped else stripped
+            continue
+        if up.startswith('CELL') or up.startswith('CONTACT'):
+            provider_contact = stripped.split(':', 1)[-1].strip() if ':' in stripped else stripped
+            continue
+        if up.startswith('PAGE '):
+            continue
+        if provider_name is None:
+            provider_name = stripped
+
+    if provider_name:
+        provider_name = re.sub(r'\s*\(\d{4}\s*-\s*\d{4}\)\s*$', '', provider_name).strip()
+
+    return {
+        'feed_provider': provider_name,
+        'egg_buyer': provider_name,
+        'provider_contact': provider_contact,
+        'provider_email': provider_email,
+        'account_holder': account_holder,
+        'ledger_period': ledger_period,
+    }
+
+
 def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
     items = [] 
     payments = []
@@ -337,6 +409,8 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
             text = p.extract_text() or ""
             for line in text.splitlines():
                 all_lines.append(line.rstrip()) 
+
+    provider_info = extract_provider_info(all_lines)
 
     i = 0
     last_bill_no = None
@@ -357,11 +431,19 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
             header_amt = None
             tn = re.findall(NUM_RE, header_text)
             if tn:
-                header_amt = clean_number(tn[-1]) 
+                for _t in tn:
+                    if '.' in _t:
+                        header_amt = clean_number(_t)
+                        break
+                if header_amt is None:
+                    header_amt = clean_number(tn[-1])
             
             # Determine header transaction type (for context only)
+            # CREDIT NOTE must be checked before FEED SALES / EGG (e.g. "Poultry Feed Sales Credit Note")
             txn_type = None
-            if "POULTRY EGG" in header_text or "EGG PURCHASE" in header_text:
+            if "CREDIT NOTE" in header_text or "DISCOUNT" in header_text:
+                txn_type = "discount"
+            elif "POULTRY EGG" in header_text or "EGG PURCHASE" in header_text or "PURCHASE EGGS" in header_text:
                 txn_type = "egg_purchase"
             elif "POULTRY FEED" in header_text or "FEED SALES" in header_text:
                 txn_type = "feed_sale" 
@@ -369,8 +451,6 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                 txn_type = "payment"
             elif re.search(r'\bTDS\b', header_text) and "DEDUCTED" not in header_text:
                 txn_type = "tds"
-            elif "DISCOUNT" in header_text:
-                txn_type = "discount"
             else:
                 if "OPENING BALANCE" in header_text: 
                     txn_type = "opening_balance"
@@ -436,7 +516,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             'bill_no': tds_bill_no,
                             'raw': nxt
                         })
-                if (' KGS' in nxt.upper()) or (' NOS' in nxt.upper()) or ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()):
+                if (' KGS' in nxt.upper()) or (' NOS' in nxt.upper()) or ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()) or ('/BAG' in nxt.upper()):
                     parsed = parse_item_line(nxt)
                     if parsed and parsed['item_name']:
                         mapped_medicine = apply_supplement_price_override(parsed)
@@ -457,7 +537,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             unit_val = parsed.get('unit')
                             if actual_category == 'egg' and unit_val and unit_val.upper().find('KG') >= 0:
                                 notes.append('unit_kg_for_egg')
-                            if actual_category == 'feed' and (not unit_val or unit_val.upper().find('KG') < 0):
+                            if actual_category == 'feed' and (not unit_val or (unit_val.upper().find('KG') < 0 and unit_val.upper() not in ('BAG', 'BAGS'))):
                                 notes.append('unit_not_kg_for_feed')
                             # header vs actual
                             if txn_type and ((txn_type.startswith('egg') and actual_category != 'egg') or (txn_type.startswith('feed') and actual_category != 'feed')):
@@ -482,18 +562,67 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             'parsing_notes': ';'.join(notes) if notes else None
                         }
                         items.append(rec)
+                elif 'FEED SUPPLEMENT' in nxt.upper():
+                    supp_tokens = nxt.split()
+                    _, supp_tok = find_last_amount_token(supp_tokens)
+                    supp_amt = clean_number(supp_tok) if supp_tok else None
+                    if supp_amt is not None:
+                        rec = {
+                            'date': parsed_date,
+                            'txn_type': txn_type,
+                            'category': 'medicine',
+                            'header_amount': header_amt,
+                            'item_name': 'FEED SUPPLEMENTS',
+                            'qty': None,
+                            'unit': None,
+                            'rate': None,
+                            'amount': supp_amt,
+                            'bill_no': last_bill_no,
+                            'raw_line': nxt,
+                            'parsing_notes': 'aggregate_supplement' if add_parsing_notes else None
+                        }
+                        items.append(rec)
                 else:
-                    if 'DISCOUNT' in nxt.upper() or 'DISCOUNT' in header_text:
-                        n = re.findall(NUM_RE, nxt)
-                        if n:
+                    # Discounts / credit notes (credit notes often lack the word DISCOUNT)
+                    if txn_type != 'discount' and (
+                        'DISCOUNT' in nxt.upper()
+                        or 'CREDIT NOTE' in nxt.upper()
+                        or 'DISCOUNT' in header_text
+                        or 'CREDIT NOTE' in header_text
+                    ):
+                        disc_upper = nxt.upper().strip()
+                        amt = None
+                        if 'DISCOUNT ALLOWED' in disc_upper or 'CREDIT NOTE' in disc_upper:
+                            disc_nums = re.findall(NUM_RE, nxt)
+                            for _dt in disc_nums:
+                                if '.' in _dt:
+                                    amt = clean_number(_dt)
+                                    break
+                        else:
+                            mult_match = DISCOUNT_MULT_RE.search(nxt)
+                            if mult_match:
+                                _qty = clean_number(mult_match.group(1))
+                                _rate = clean_number(mult_match.group(2))
+                                if _qty is not None and _rate is not None:
+                                    amt = round(float(_qty) * float(_rate), 2)
+                        if amt is not None:
                             discounts.append({
                                 'date': parsed_date,
-                                'amount': clean_number(n[-1]),
+                                'amount': amt,
                                 'raw': nxt
                             })
                     if 'CANARA BANK' in nxt.upper() or 'PAYMENT' in nxt.upper() or 'TO CANARA BANK' in nxt.upper():
                         n = re.findall(NUM_RE, nxt)
                         amt = clean_number(n[-1]) if n else header_amt
+                        # Prefer following "On Account <amt> Dr" when present — PDF often
+                        # glues voucher no. into the amount (e.g. "641,00,000" for vch 641 + ₹1,00,000).
+                        if j + 1 < len(all_lines):
+                            on_acct = all_lines[j + 1].strip()
+                            m_on = re.search(r'ON\s+ACCOUNT\s+([\d,]+(?:\.\d+)?)\s*DR', on_acct.upper())
+                            if m_on:
+                                on_amt = clean_number(m_on.group(1))
+                                if on_amt is not None:
+                                    amt = on_amt
                         payments.append({
                             'date': parsed_date,
                             'amount': amt,
@@ -507,7 +636,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
             m = re.search(r'TDS DEDUCTED BILL NO\s*(\d+)|TDS DEDUCTED BILL NO[:\s]*(\d+)|BILLNO\s*(\d+)', up)
             if m:
                 last_bill_no = m.group(1) or m.group(2) or m.group(3)
-            if (' KGS' in up) or (' NOS' in up) or ('/KGS' in up) or ('/NOS' in up):
+            if (' KGS' in up) or (' NOS' in up) or ('/KGS' in up) or ('/NOS' in up) or ('/BAG' in up):
                 parsed = parse_item_line(line)
                 if parsed and parsed['item_name']:
                     mapped_medicine = apply_supplement_price_override(parsed)
@@ -633,16 +762,21 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
     # Note: Payments are money received (reduce balance owed), not expenses, so they're not subtracted here
     grand_total = total_eggs - total_feeds - total_meds - total_other - total_tds + total_discounts
     
-    summary = {
-        'total_eggs': round(total_eggs, 2),
-        'total_feeds': round(total_feeds, 2),
-        'total_medicines': round(total_meds, 2),
-        'total_other_items': round(total_other, 2),
-        'total_payments': round(total_payments, 2),
-        'total_tds': round(total_tds, 2),
-        'total_discounts': round(total_discounts, 2),
-        'grand_total': round(grand_total, 2)
-    }
+    summary = {}
+    summary['feed_provider'] = provider_info.get('feed_provider')
+    summary['egg_buyer'] = provider_info.get('egg_buyer')
+    summary['provider_contact'] = provider_info.get('provider_contact')
+    summary['provider_email'] = provider_info.get('provider_email')
+    summary['account_holder'] = provider_info.get('account_holder')
+    summary['ledger_period'] = provider_info.get('ledger_period')
+    summary['total_eggs'] = round(total_eggs, 2)
+    summary['total_feeds'] = round(total_feeds, 2)
+    summary['total_medicines'] = round(total_meds, 2)
+    summary['total_other_items'] = round(total_other, 2)
+    summary['total_payments'] = round(total_payments, 2)
+    summary['total_tds'] = round(total_tds, 2)
+    summary['total_discounts'] = round(total_discounts, 2)
+    summary['grand_total'] = round(grand_total, 2)
 
     # Net profit = total_eggs + total_discounts - total_feeds - total_medicine - total_other - total_tds
     net_profit = (total_eggs + total_discounts) - (total_feeds + total_meds + total_other + total_tds)

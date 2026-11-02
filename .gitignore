@@ -1,9 +1,15 @@
-# Ledgers and parsed data
+# Ledgers and parsed data (sensitive operating records; keep local only)
 2025_ledgers/
 2025_parsed_data/
+ledgers/
 *.pdf
 *.xlsx
 *.numbers
+
+# Feed rate sheets (sensitive operating records; keep local only)
+feed_price_history/**/*.jpeg
+feed_price_history/**/*.jpg
+feed_price_history/**/*.png
 
 # Python cache
 __pycache__/

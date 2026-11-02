@@ -29,6 +29,7 @@ Use that skill to load/verify feed price images for all dates relevant to the le
 
 - Python venv at `python_backend/venv/` with `pdfplumber`, `pandas`, `openpyxl`, `psycopg2`
 - AWS CLI with profile `AdminAccess-Pradeep`
+- RDS tunnel via `scripts/start-rds-port-forward.sh` (same script as load-feed-prices). Runbook: `scripts/README_RDS_TUNNEL.md`
 - Feed price images available in `feed_price_history/<YEAR>/`
 - Ledger PDF available in `ledgers/<YEAR>_ledgers/`
 
@@ -51,13 +52,8 @@ PDF="ledgers/2026_ledgers/26_03_MAR.pdf"
 TENANT_ID="8d7939f7-b716-4eb0-98d4-544c18c8dfb8"
 DB_PORT=15432   # use 15433 if 15432 is busy
 
-# 1) Start RDS tunnel (keep this terminal open)
-aws ssm start-session \
-  --target i-0b27dddea8b9b649d \
-  --document-name AWS-StartPortForwardingSessionToRemoteHost \
-  --parameters "{\"host\":[\"poultry-farm-dev.cx68k0g04oac.ap-south-1.rds.amazonaws.com\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"$DB_PORT\"]}" \
-  --profile AdminAccess-Pradeep \
-  --region ap-south-1
+# 1) Start RDS tunnel (keep this terminal open). Refreshes SSO in Chrome profile codepd if needed.
+LOCAL_PORT=$DB_PORT scripts/start-rds-port-forward.sh
 
 # 2) Load monthly avg egg prices for this month (dry-run first)
 DB_HOST=localhost DB_PORT=$DB_PORT DB_NAME=poultry_farm DB_USER=poultry_admin DB_PASSWORD='***' DB_SSLMODE=require \
@@ -74,10 +70,13 @@ python_backend/venv/bin/python scripts/load_necc_egg_prices.py \
   --from-month $MONTH \
   --to-month $MONTH
 
-# 4) Load feed prices for ledger period (follow load-feed-prices skill)
-# Example (repeat for each image):
+# 4) Load feed prices for the ledger month (follow load-feed-prices skill)
+# Monthly grid, when that month is transcribed in scripts/load_monthly_feed_prices.py:
+# DB_HOST=localhost DB_PORT=$DB_PORT DB_NAME=poultry_farm DB_USER=poultry_admin DB_PASSWORD='***' \
+#   python_backend/venv/bin/python scripts/load_monthly_feed_prices.py --months $MONTH
+# Weekly card only when that month has no monthly screenshot:
 # cd python_backend && DB_HOST=localhost DB_PORT=$DB_PORT DB_NAME=poultry_farm DB_USER=poultry_admin DB_PASSWORD='***' \
-# venv/bin/python cli/process_feed_price_images.py ../feed_price_history/2026/03_16_2026.jpeg --tenant-name "Pradeep Farm"
+#   venv/bin/python cli/process_feed_price_images.py ../feed_price_history/2026/03_16_2026.jpeg --tenant-name "Pradeep Farm"
 
 # 5) Parse ledger PDF -> Excel
 python3 parse_poultry_statement.py "$PDF"
@@ -97,15 +96,10 @@ venv/bin/python cli/process_ledger_pdf.py "../$PDF" --tenant-id "$TENANT_ID"
 ### 1. Start SSM Tunnel to RDS
 
 ```bash
-aws ssm start-session \
-  --target i-0b27dddea8b9b649d \
-  --document-name AWS-StartPortForwardingSessionToRemoteHost \
-  --parameters '{"host":["poultry-farm-dev.cx68k0g04oac.ap-south-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}' \
-  --profile AdminAccess-Pradeep \
-  --region ap-south-1
+scripts/start-rds-port-forward.sh
 ```
 
-Run in background (`block_until_ms: 0`). If `15432` is busy, use `15433` and keep that port for all subsequent commands.
+This refreshes AWS SSO in the Chrome profile named codepd when the token is expired, then forwards the RDS host through `kolipannai-dev-bastion` (`i-0a5c2678494e93072`). Run in background (`block_until_ms: 0`). Wait for `Waiting for connections...`. If `15432` is busy, use `LOCAL_PORT=15433` and keep that port for all subsequent commands. See `scripts/README_RDS_TUNNEL.md`.
 
 ### 2. Load Monthly Avg Egg Prices for Ledger Month
 
@@ -123,10 +117,13 @@ Use `--dry-run` first if needed.
 
 ### 3. Load Feed Prices for Ledger Period (MANDATORY)
 
-Follow `.cursor/skills/load-feed-prices/SKILL.md` and load all feed price images needed for the ledger month and billing dates.
+Follow `.cursor/skills/load-feed-prices/SKILL.md` and load all feed price images needed for the ledger month and billing dates. A monthly daily grid (`MM_DD_DD_YYYY.jpeg`) is the source for every date it covers; load it with `scripts/load_monthly_feed_prices.py` after the bands for that month are in the script. Use the weekly OCR script only for dates that grid does not cover.
 
-Validation rule: feed rate reference must come from the latest price on or before transaction date (never a future date).
-
+Validation rules:
+- Prefer **Sakthi** feed prices; use **Everest** only when Sakthi is missing for that date range.
+- Reference must be the latest price on or before transaction date (never a future date).
+- Compare ledger ₹/kg to sheet bag rate ÷ **75**.
+- If neither Sakthi nor Everest covers a date (e.g. mid-month change with no sheet), treat that rate as unverifiable and confirm with the user before DB load.
 ### 4. Parse PDF → Generate Excel
 
 ```bash
@@ -198,7 +195,7 @@ Query latest ledger rows and compare totals with verified Excel and validation o
 |----------|-------|
 | Tenant (Pradeep Farm) | `8d7939f7-b716-4eb0-98d4-544c18c8dfb8` |
 | RDS Endpoint | `poultry-farm-dev.cx68k0g04oac.ap-south-1.rds.amazonaws.com` |
-| Bastion Instance | `i-0b27dddea8b9b649d` |
+| Bastion Instance | `i-0a5c2678494e93072` |
 | AWS Profile | `AdminAccess-Pradeep` |
 | AWS Region | `ap-south-1` |
 | Local tunnel port | `15432` (fallback `15433`) |
