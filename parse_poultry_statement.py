@@ -490,6 +490,20 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                 opening_balance = header_amt
             if txn_type == 'closing_balance' and header_amt is not None:
                 closing_balance = header_amt
+            # A journal voucher that is not already a TDS line (those are captured
+            # below). Example: "To (as per details) Journal 106 2,735.000".
+            if (
+                "JOURNAL" in header_text
+                and "TDS" not in header_text
+                and header_amt is not None
+                and not any(e.get('raw') == line for e in tds_entries)
+            ):
+                tds_entries.append({
+                    'date': parsed_date,
+                    'amount': header_amt,
+                    'bill_no': last_bill_no,
+                    'raw': line
+                })
 
             j = i + 1
             while j < len(all_lines):
@@ -516,7 +530,31 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
                             'bill_no': tds_bill_no,
                             'raw': nxt
                         })
-                if (' KGS' in nxt.upper()) or (' NOS' in nxt.upper()) or ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()) or ('/BAG' in nxt.upper()):
+                # "Feed 2,532.000" / "Supplements" is split across two lines in these PDFs.
+                if re.match(r'^FEED\s+[\d,]+(?:\.\d+)?$', nxt, re.IGNORECASE):
+                    nxt2 = all_lines[j + 1].strip() if j + 1 < len(all_lines) else ""
+                    if "SUPPLEMENT" in nxt2.upper():
+                        supp_amt = clean_number(re.search(r'([\d,]+(?:\.\d+)?)', nxt).group(1))
+                        if supp_amt is not None:
+                            items.append({
+                                'date': parsed_date,
+                                'txn_type': txn_type,
+                                'category': 'medicine',
+                                'header_amount': header_amt,
+                                'item_name': 'FEED SUPPLEMENTS',
+                                'qty': None,
+                                'unit': None,
+                                'rate': None,
+                                'amount': supp_amt,
+                                'bill_no': last_bill_no,
+                                'raw_line': nxt,
+                                'parsing_notes': 'split_feed_supplement' if add_parsing_notes else None
+                            })
+                        j += 1
+                        continue
+                # Require a rate marker. Narration such as "x 50 KGS = 1000 X11" contains KGS
+                # but is not an item line.
+                if ('/KGS' in nxt.upper()) or ('/NOS' in nxt.upper()) or ('/BAG' in nxt.upper()):
                     parsed = parse_item_line(nxt)
                     if parsed and parsed['item_name']:
                         mapped_medicine = apply_supplement_price_override(parsed)
@@ -636,7 +674,7 @@ def parse_pdf_statement(pdf_path, auto_correct=False, add_parsing_notes=True):
             m = re.search(r'TDS DEDUCTED BILL NO\s*(\d+)|TDS DEDUCTED BILL NO[:\s]*(\d+)|BILLNO\s*(\d+)', up)
             if m:
                 last_bill_no = m.group(1) or m.group(2) or m.group(3)
-            if (' KGS' in up) or (' NOS' in up) or ('/KGS' in up) or ('/NOS' in up) or ('/BAG' in up):
+            if ('/KGS' in up) or ('/NOS' in up) or ('/BAG' in up):
                 parsed = parse_item_line(line)
                 if parsed and parsed['item_name']:
                     mapped_medicine = apply_supplement_price_override(parsed)
