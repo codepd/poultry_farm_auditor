@@ -58,6 +58,14 @@ module "s3_cdn" {
   }
 }
 
+module "s3_documents" {
+  source                   = "../../../modules/aws/s3_documents"
+  bucket_name              = var.documents_bucket_name
+  eks_node_role_name       = module.eks.node_role_name
+  github_actions_role_name = module.github_oidc.role_name
+  tags                     = var.tags
+}
+
 module "bastion" {
   source           = "../../../modules/aws/bastion"
   name             = var.name

@@ -36,8 +36,8 @@ const PriceHistoryPage: React.FC = () => {
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]); // Filter by item names
 
-  // Check if user can edit (OWNER or MANAGER role)
-  const canEdit = currentTenant && ['OWNER', 'MANAGER'].includes(currentTenant.role);
+  // Check if user can edit (OWNER, CO_OWNER, ADMIN, or MANAGER role)
+  const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
 
   // Get available years from prices
   const availableYears = React.useMemo(() => {

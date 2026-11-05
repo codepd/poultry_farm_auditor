@@ -85,6 +85,32 @@ func runMigrations() {
 		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_tenant_id ON auth_sessions(tenant_id)",
 		"CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)",
 		"ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS device_id VARCHAR(128)",
+		`CREATE TABLE IF NOT EXISTS document_uploads (
+			id SERIAL PRIMARY KEY,
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			s3_bucket VARCHAR(255) NOT NULL,
+			s3_key TEXT NOT NULL,
+			s3_version_id VARCHAR(255),
+			file_name VARCHAR(255) NOT NULL,
+			file_type VARCHAR(50) NOT NULL,
+			content_type VARCHAR(100),
+			file_size BIGINT,
+			sha256_hash VARCHAR(64),
+			document_year INTEGER,
+			document_month INTEGER,
+			upload_source VARCHAR(50) DEFAULT 'WEB_PORTAL',
+			upload_status VARCHAR(50) DEFAULT 'UPLOADED',
+			parse_result JSONB,
+			error_message TEXT,
+			uploaded_by_user_id INTEGER REFERENCES users(id),
+			ledger_parse_id INTEGER REFERENCES ledger_parses(id) ON DELETE SET NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(tenant_id, s3_key)
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_document_uploads_tenant_id ON document_uploads(tenant_id)",
+		"CREATE INDEX IF NOT EXISTS idx_document_uploads_status ON document_uploads(tenant_id, upload_status)",
+		"CREATE INDEX IF NOT EXISTS idx_document_uploads_period ON document_uploads(tenant_id, document_year, document_month)",
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

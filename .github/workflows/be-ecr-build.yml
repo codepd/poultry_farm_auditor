@@ -106,6 +106,9 @@ jobs:
           IMAGE_URI="${{ needs.build-and-push.outputs.image_uri }}"
           IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
 
+          kubectl -n "${{ env.K8S_NAMESPACE }}" set env deployment/"${{ env.K8S_DEPLOYMENT }}" \
+            S3_DOCUMENTS_BUCKET="kolipannai-dev-documents" \
+            AWS_REGION="${{ env.AWS_REGION }}"
           kubectl -n "${{ env.K8S_NAMESPACE }}" set image deployment/"${{ env.K8S_DEPLOYMENT }}" \
             go-api="$IMAGE_URI:$IMAGE_TAG"
           kubectl -n "${{ env.K8S_NAMESPACE }}" rollout status deployment/"${{ env.K8S_DEPLOYMENT }}" --timeout=180s

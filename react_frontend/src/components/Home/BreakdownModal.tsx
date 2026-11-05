@@ -130,7 +130,7 @@ const BreakdownModal: React.FC<BreakdownModalProps> = ({
     } else if (category === 'FEED' || category === 'MEDICINE') {
       transactionType = 'PURCHASE';
     } else if (category === 'OTHER') {
-      transactionType = 'PURCHASE';
+      transactionType = 'EXPENSE';
     }
 
     try {

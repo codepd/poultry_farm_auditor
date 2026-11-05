@@ -78,6 +78,12 @@ variable "frontend_bucket_name" {
   default = "poultry-dev-frontend-replace-me"
 }
 
+variable "documents_bucket_name" {
+  type        = string
+  default     = "kolipannai-dev-documents"
+  description = "S3 bucket name for ledgers, feed price sheets, and parsed excels"
+}
+
 variable "frontend_domain_name" {
   type    = string
   default = "app-dev.mykolipannai.com"

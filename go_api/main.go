@@ -116,9 +116,13 @@ func main() {
 	// Public invitation acceptance
 	apiRouter.HandleFunc("/users/accept-invite", handlers.AcceptInvite).Methods("POST")
 
-	// Admin endpoints (for local development)
+	// Admin endpoints (for local development & data ingestion)
 	apiRouter.HandleFunc("/admin/create-tenant", handlers.CreateTenantDirectly).Methods("POST")
 	apiRouter.HandleFunc("/admin/create-owner", handlers.CreateOwnerDirectly).Methods("POST")
+	protectedRouter.HandleFunc("/admin/upload-ledger", handlers.UploadLedgerHandler).Methods("POST")
+	protectedRouter.HandleFunc("/admin/uploads", handlers.ListDocumentUploadsHandler).Methods("GET")
+	protectedRouter.HandleFunc("/admin/uploads/{id}", handlers.GetDocumentUploadStatusHandler).Methods("GET")
+	protectedRouter.HandleFunc("/admin/uploads/{id}/commit", handlers.CommitDocumentUploadHandler).Methods("POST")
 
 	// Analytics routes
 	protectedRouter.HandleFunc("/analytics/enhanced-monthly-summary", handlers.GetEnhancedMonthlySummary).Methods("GET")

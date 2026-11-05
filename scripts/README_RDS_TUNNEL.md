@@ -38,7 +38,7 @@ Do not start a second Chrome with `open -n` or `--new-window`. That opens a stra
 
 ## 2. Load monthly feed bag rates
 
-`scripts/load_monthly_feed_prices.py` holds the daily bands transcribed from `feed_price_history/<YEAR>/MM_DD_DD_YYYY.jpeg`. Transcribed months: `2026-04` through `2026-08`. Prices are rupees per bag. The sheet footer (total, Per bag, Per Kg) is a checksum and is not stored.
+`scripts/load_monthly_feed_prices.py` holds the daily bands transcribed from `feed_price_history/<YEAR>/MM_DD_DD_YYYY.jpeg`. Transcribed months: `2026-04` through `2026-09`. Prices are rupees per bag. The sheet footer (total, Per bag, Per Kg) is a checksum and is not stored.
 
 The tunnel must already be up. `DB_PASSWORD` is the `poultry_admin` password recorded in `.cursor/skills/load-feed-prices/SKILL.md`.
 

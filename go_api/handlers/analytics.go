@@ -10,6 +10,7 @@ import (
 	"poultry-farm-api/middleware"
 	"poultry-farm-api/utils"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -378,6 +379,94 @@ func GetYearlyPeriodSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// classifyFeedStage categorizes poultry feed into production (Layer) vs rearing stages (Chick, Grower, Pre-layer).
+func classifyFeedStage(itemName string) (stage string, stageLabel string) {
+	upper := strings.ToUpper(itemName)
+	compact := strings.ReplaceAll(upper, " ", "")
+	compact = strings.ReplaceAll(compact, "-", "")
+	compact = strings.ReplaceAll(compact, "_", "")
+
+	// 1. Check chick stage first (e.g. "LAYER CHICKS CRUMBLE" or "LCC 1" is for chicks)
+	if strings.Contains(compact, "CHICK") || strings.Contains(compact, "CRUMBLE") || strings.Contains(compact, "LCC") || strings.Contains(upper, " CM") || strings.Contains(upper, "C M") || strings.HasSuffix(upper, "CM") {
+		return "CHICK", "Chick Feed (0-8 Wks)"
+	}
+	// 2. Check grower stage
+	if strings.Contains(compact, "GROWER") || strings.Contains(compact, "SYLOGM") || strings.Contains(compact, " GM") || strings.Contains(upper, "G M") || strings.HasSuffix(upper, "GM") {
+		return "GROWER", "Grower Feed (8-16 Wks)"
+	}
+	// 3. Check pre-layer stage
+	if strings.Contains(compact, "PRELAYER") || strings.Contains(compact, "PLM") {
+		return "PRELAYER", "Pre-Layer Feed (16-20 Wks)"
+	}
+	// 4. Check layer stage
+	if strings.Contains(compact, "LAYER") || strings.Contains(compact, "SYLOLM") || strings.Contains(compact, " LM") || strings.Contains(upper, "L M") || strings.HasSuffix(upper, "LM") {
+		return "LAYER", "Layer Feed (Production)"
+	}
+	return "OTHER", "Other Feed"
+}
+
+// ensureDefaultMonthlyOverheads seeds default monthly Labor (80,000), Electricity (12,000), and EMI (2,90,000)
+// for a month if not yet entered manually, so users always see and can edit them in the Other Expenses modal.
+func ensureDefaultMonthlyOverheads(tenantID uuid.UUID, year, month int) {
+	if year < 2025 || month < 1 || month > 12 {
+		return
+	}
+
+	// Only seed defaults for months that have farm data or are up to the current active year/month
+	var hasActivity bool
+	_ = database.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM transactions
+			WHERE tenant_id = $1
+			  AND EXTRACT(YEAR FROM transaction_date) = $2
+			  AND EXTRACT(MONTH FROM transaction_date) = $3
+		) OR EXISTS(
+			SELECT 1 FROM ledger_parses
+			WHERE tenant_id = $1 AND year = $2 AND month = $3
+		)
+	`, tenantID, year, month).Scan(&hasActivity)
+	if !hasActivity {
+		return
+	}
+
+	defaults := []struct {
+		ItemName    string
+		MatchLike   string
+		Amount      float64
+		Description string
+	}{
+		{"LABOR", "%LABOR%", 80000.00, "Default monthly labor cost (editable)"},
+		{"ELECTRICITY", "%ELECTRIC%", 12000.00, "Default monthly electricity cost (editable)"},
+		{"EMI", "%EMI%", 290000.00, "Default monthly farm EMI (editable)"},
+	}
+
+	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+
+	for _, d := range defaults {
+		var exists bool
+		err := database.DB.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM transactions
+				WHERE tenant_id = $1
+				  AND EXTRACT(YEAR FROM transaction_date) = $2
+				  AND EXTRACT(MONTH FROM transaction_date) = $3
+				  AND category = 'OTHER'
+				  AND transaction_type IN ('EXPENSE', 'PURCHASE')
+				  AND UPPER(COALESCE(item_name, '')) LIKE $4
+			)
+		`, tenantID, year, month, d.MatchLike).Scan(&exists)
+		if err == nil && !exists {
+			_, _ = database.DB.Exec(`
+				INSERT INTO transactions (
+					tenant_id, transaction_date, transaction_type, category,
+					item_name, quantity, unit, rate, amount, notes,
+					payment_date, period_month
+				) VALUES ($1, $2, 'EXPENSE', 'OTHER', $3, 1, 'MONTH', $4, $4, $5, $2, $2)
+			`, tenantID, monthStart, d.ItemName, d.Amount, d.Description)
+		}
+	}
+}
+
 // GetEnhancedMonthlySummary returns detailed monthly statistics
 func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
@@ -424,21 +513,29 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure default Labor, Electricity, and EMI rows exist for this month if not manually entered yet
+	ensureDefaultMonthlyOverheads(tenantID, year, month)
+
 	// Get ledger parse data
 	var ledgerParse struct {
 		TotalEggs      sql.NullFloat64
 		TotalFeeds     sql.NullFloat64
 		TotalMedicines sql.NullFloat64
 		NetProfit      sql.NullFloat64
+		OpeningBalance sql.NullFloat64
+		ClosingBalance sql.NullFloat64
 	}
 
 	err = database.DB.QueryRow(`
-		SELECT total_eggs, total_feeds, total_medicines, net_profit
+		SELECT total_eggs, total_feeds, total_medicines, net_profit, opening_balance, closing_balance
 		FROM ledger_parses
 		WHERE tenant_id = $1 AND year = $2 AND month = $3
+		ORDER BY id DESC
+		LIMIT 1
 	`, tenantID, year, month).Scan(
 		&ledgerParse.TotalEggs, &ledgerParse.TotalFeeds,
 		&ledgerParse.TotalMedicines, &ledgerParse.NetProfit,
+		&ledgerParse.OpeningBalance, &ledgerParse.ClosingBalance,
 	)
 
 	if err == sql.ErrNoRows {
@@ -623,9 +720,16 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	totalEggPrice = sanitizeFloat(totalEggPrice)
 	totalEggsSold = sanitizeFloat(totalEggsSold)
 
-	// Total feed purchases
+	// Total feed purchases (convert 50kg BAG quantities to KGS)
 	database.DB.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(quantity), 0)
+		SELECT COALESCE(SUM(amount), 0),
+		       COALESCE(SUM(
+		           CASE
+		               WHEN UPPER(COALESCE(unit, '')) LIKE 'BAG%' OR (quantity > 0 AND amount / quantity > 500)
+		               THEN quantity * 50.0
+		               ELSE quantity
+		           END
+		       ), 0)
 		FROM transactions
 		WHERE tenant_id = $1 AND category = 'FEED' AND transaction_type = 'PURCHASE'
 		  AND EXTRACT(YEAR FROM transaction_date) = $2
@@ -943,7 +1047,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		WHERE tenant_id = $1 
 			AND EXTRACT(YEAR FROM transaction_date) = $2
 			AND EXTRACT(MONTH FROM transaction_date) = $3
-			AND category = 'OTHER' AND transaction_type = 'EXPENSE'
+			AND category = 'OTHER' AND transaction_type IN ('EXPENSE', 'PURCHASE')
 	`, tenantID, year, month).Scan(&otherExpensesFromTxns)
 	otherExpensesFromTxns = sanitizeFloat(otherExpensesFromTxns)
 
@@ -1059,7 +1163,15 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		Amount   float64
 	}
 	feedBreakdownRows, _ := database.DB.Query(`
-		SELECT item_name, COALESCE(SUM(quantity), 0) as total_qty, COALESCE(SUM(amount), 0) as total_amt
+		SELECT item_name,
+		       COALESCE(SUM(
+		           CASE
+		               WHEN UPPER(COALESCE(unit, '')) LIKE 'BAG%' OR (quantity > 0 AND amount / quantity > 500)
+		               THEN quantity * 50.0
+		               ELSE quantity
+		           END
+		       ), 0) as total_qty,
+		       COALESCE(SUM(amount), 0) as total_amt
 		FROM transactions
 		WHERE tenant_id = $1 
 			AND EXTRACT(YEAR FROM transaction_date) = $2
@@ -1180,22 +1292,63 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var feedBreakdownFinal []map[string]interface{}
+	var layerFeedAmount, rearingFeedAmount float64
+	var chickFeedAmount, growerFeedAmount, prelayerFeedAmount, otherFeedAmount float64
+	var layerFeedKg, rearingFeedKg float64
+	var chickFeedKg, growerFeedKg, prelayerFeedKg, otherFeedKg float64
+
 	if len(feedBreakdownsFromTxns) > 0 {
 		for _, item := range feedBreakdownsFromTxns {
+			stage, stageLabel := classifyFeedStage(item.ItemName)
+			switch stage {
+			case "LAYER":
+				layerFeedAmount += item.Amount
+				layerFeedKg += item.Quantity
+			case "CHICK":
+				chickFeedAmount += item.Amount
+				chickFeedKg += item.Quantity
+				rearingFeedAmount += item.Amount
+				rearingFeedKg += item.Quantity
+			case "GROWER":
+				growerFeedAmount += item.Amount
+				growerFeedKg += item.Quantity
+				rearingFeedAmount += item.Amount
+				rearingFeedKg += item.Quantity
+			case "PRELAYER":
+				prelayerFeedAmount += item.Amount
+				prelayerFeedKg += item.Quantity
+				rearingFeedAmount += item.Amount
+				rearingFeedKg += item.Quantity
+			default:
+				otherFeedAmount += item.Amount
+				otherFeedKg += item.Quantity
+			}
+
 			feedBreakdownFinal = append(feedBreakdownFinal, map[string]interface{}{
-				"type":     item.ItemName,
-				"quantity": item.Quantity / 1000.0, // Convert to tonnes
-				"amount":   item.Amount,
+				"type":        item.ItemName,
+				"quantity":    item.Quantity / 1000.0, // Convert to tonnes
+				"amount":      item.Amount,
+				"stage":       stage,
+				"stage_label": stageLabel,
 			})
 		}
 	} else {
 		// Fallback to ledger breakdowns
 		for _, item := range feedBreakdowns {
+			stage, stageLabel := classifyFeedStage(item.Type)
 			feedBreakdownFinal = append(feedBreakdownFinal, map[string]interface{}{
-				"type":     item.Type,
-				"quantity": item.Quantity,
+				"type":        item.Type,
+				"quantity":    item.Quantity,
+				"stage":       stage,
+				"stage_label": stageLabel,
 			})
 		}
+	}
+
+	// Fallback if no specific stage matched but totalFeedPrice > 0
+	if layerFeedAmount == 0 && rearingFeedAmount == 0 && totalFeedPrice > 0 {
+		layerFeedAmount = totalFeedPrice
+		layerFeedKg = feedPurchasedKg
 	}
 
 	var medicineBreakdownFinal []map[string]interface{}
@@ -1255,81 +1408,35 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		chickStageExpense["batch_id"] = rb.ID
 		chickStageExpense["batch_name"] = rb.BatchName
 
-		classifyStage := func(txnDate time.Time) string {
-			diffDays := int(txnDate.Sub(rb.DateAdded).Hours() / 24)
-			ageDaysOnTxn := rb.InitialAge + diffDays
-			if ageDaysOnTxn < 0 {
-				ageDaysOnTxn = 0
-			}
-			ageWeeksOnTxn := ageDaysOnTxn / 7
-
-			switch {
-			case ageWeeksOnTxn <= 8:
-				return "CHICK"
-			case ageWeeksOnTxn <= 16:
-				return "GROWER"
-			case ageWeeksOnTxn <= 25:
-				return "PRELAYER"
-			default:
-				return ""
-			}
-		}
-
-		monthlyStage := map[string]float64{"CHICK": 0, "GROWER": 0, "PRELAYER": 0}
-		monthlyRows, mErr := database.DB.Query(`
-			SELECT transaction_date, COALESCE(amount, 0)
-			FROM transactions
-			WHERE tenant_id = $1
-			  AND EXTRACT(YEAR FROM transaction_date) = $2
-			  AND EXTRACT(MONTH FROM transaction_date) = $3
-			  AND category = 'FEED'
-			  AND transaction_type = 'PURCHASE'
-		`, tenantID, year, month)
-		if mErr == nil {
-			defer monthlyRows.Close()
-			for monthlyRows.Next() {
-				var txnDate time.Time
-				var amount float64
-				if scanErr := monthlyRows.Scan(&txnDate, &amount); scanErr != nil {
-					continue
-				}
-				stage := classifyStage(txnDate)
-				if stage == "" {
-					continue
-				}
-				monthlyStage[stage] += sanitizeFloat(amount)
-			}
+		monthlyStage := map[string]float64{
+			"CHICK":    chickFeedAmount,
+			"GROWER":   growerFeedAmount,
+			"PRELAYER": prelayerFeedAmount,
 		}
 
 		cumulativeStage := map[string]float64{"CHICK": 0, "GROWER": 0, "PRELAYER": 0}
-		maxRearingEnd := rb.DateAdded.AddDate(0, 0, (25*7)-rb.InitialAge)
+		yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
 		cutoff := monthEnd.AddDate(0, 0, -1)
-		if maxRearingEnd.Before(cutoff) {
-			cutoff = maxRearingEnd
-		}
 
-		if !cutoff.Before(rb.DateAdded) {
-			cumulativeRows, cErr := database.DB.Query(`
-				SELECT transaction_date, COALESCE(amount, 0)
-				FROM transactions
-				WHERE tenant_id = $1
-				  AND transaction_date >= $2
-				  AND transaction_date <= $3
-				  AND category = 'FEED'
-				  AND transaction_type = 'PURCHASE'
-			`, tenantID, rb.DateAdded, cutoff)
-			if cErr == nil {
-				defer cumulativeRows.Close()
-				for cumulativeRows.Next() {
-					var txnDate time.Time
-					var amount float64
-					if scanErr := cumulativeRows.Scan(&txnDate, &amount); scanErr != nil {
-						continue
-					}
-					stage := classifyStage(txnDate)
-					if stage == "" {
-						continue
-					}
+		cumulativeRows, cErr := database.DB.Query(`
+			SELECT COALESCE(item_name, ''), COALESCE(amount, 0)
+			FROM transactions
+			WHERE tenant_id = $1
+			  AND transaction_date >= $2
+			  AND transaction_date <= $3
+			  AND category = 'FEED'
+			  AND transaction_type = 'PURCHASE'
+		`, tenantID, yearStart, cutoff)
+		if cErr == nil {
+			defer cumulativeRows.Close()
+			for cumulativeRows.Next() {
+				var fItem string
+				var amount float64
+				if scanErr := cumulativeRows.Scan(&fItem, &amount); scanErr != nil {
+					continue
+				}
+				stage, _ := classifyFeedStage(fItem)
+				if stage == "CHICK" || stage == "GROWER" || stage == "PRELAYER" {
 					cumulativeStage[stage] += sanitizeFloat(amount)
 				}
 			}
@@ -1348,30 +1455,90 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		chickStageExpense["total_till_25_weeks_prelayer"] = sanitizeFloat(cumulativeStage["PRELAYER"])
 	}
 
+	// Get labor expenses
+	var laborExpenses float64
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1 
+			AND EXTRACT(YEAR FROM transaction_date) = $2
+			AND EXTRACT(MONTH FROM transaction_date) = $3
+			AND transaction_type IN ('EXPENSE', 'PURCHASE')
+			AND category = 'OTHER' 
+			AND UPPER(item_name) LIKE '%LABOR%'
+	`, tenantID, year, month).Scan(&laborExpenses)
+	laborExpenses = sanitizeFloat(laborExpenses)
+
+	// Tiered profit calculations:
+	// 1. Flock Laying Operating Profit (Core operational efficiency: Egg Revenue + Discounts - Layer Mash - Meds)
+	flockOperatingProfit := sanitizeFloat(
+		(totalEggPrice + totalDiscounts) - (layerFeedAmount + finalMedicines),
+	)
+
+	// 2. Ledger Net Profit (Direct Sakthi / Everest statement calculation: Egg Revenue + Discounts - All Feeds - Meds - TDS)
+	ledgerNetProfit := sanitizeFloat(
+		(totalEggPrice + totalDiscounts) - (totalFeedPrice + finalMedicines + totalTDS),
+	)
+
+	// 3. Farm Net Profit (Comprehensive Farm Bottom Line: All Incomes - All Feeds - Meds - Overheads - TDS)
+	farmNetProfit := sanitizeFloat(
+		(totalEggPrice + totalDiscounts + totalOtherIncome) -
+			(totalFeedPrice + finalMedicines + otherExpensesFromTxns + totalTDS),
+	)
+
+	var openingBalance, closingBalance float64
+	if ledgerParse.OpeningBalance.Valid {
+		openingBalance = sanitizeFloat(ledgerParse.OpeningBalance.Float64)
+	}
+	if ledgerParse.ClosingBalance.Valid {
+		closingBalance = sanitizeFloat(ledgerParse.ClosingBalance.Float64)
+	}
+
+	netProfit = farmNetProfit
+	if shouldHideProfit {
+		netProfit = 0
+		flockOperatingProfit = 0
+		ledgerNetProfit = 0
+		farmNetProfit = 0
+	}
+
 	summary := map[string]interface{}{
-		"year":                 year,
-		"month":                month,
-		"total_eggs_sold":      totalEggsSold,
-		"egg_breakdown":        eggBreakdownFinal,
-		"total_egg_price":      totalEggPrice,
-		"feed_purchased_tonne": feedPurchasedTonne,
-		"feed_breakdown":       feedBreakdownFinal,
-		"total_feed_price":     totalFeedPrice,
-		"total_medicines":      finalMedicines,
-		"medicine_breakdown":   medicineBreakdownFinal,
-		"other_expenses":       otherExpensesFromTxns,
-		"other_income":         totalOtherIncome,
-		"hen_sale_income":      henSaleIncome,
-		"total_discounts":      totalDiscounts,
-		"total_tds":            totalTDS,
-		"total_payments":       totalPayments,
-		"payment_breakdown":    paymentBreakdownFinal,
-		"chick_stage_expense":  chickStageExpense,
-		"net_profit":           netProfit,
-		"estimated_hens":       estimatedHens,
-		"actual_head_count":    actualHeadCount,
-		"using_actual_count":   usingActualCount,
-		"egg_percentage":       eggPercentage,
+		"year":                   year,
+		"month":                  month,
+		"total_eggs_sold":        totalEggsSold,
+		"egg_breakdown":          eggBreakdownFinal,
+		"total_egg_price":        totalEggPrice,
+		"feed_purchased_tonne":   feedPurchasedTonne,
+		"feed_breakdown":         feedBreakdownFinal,
+		"total_feed_price":       totalFeedPrice,
+		"layer_feed_price":       sanitizeFloat(layerFeedAmount),
+		"layer_feed_tonne":       sanitizeFloat(layerFeedKg / 1000.0),
+		"rearing_feed_price":     sanitizeFloat(rearingFeedAmount),
+		"rearing_feed_tonne":     sanitizeFloat(rearingFeedKg / 1000.0),
+		"chick_feed_price":       sanitizeFloat(chickFeedAmount),
+		"grower_feed_price":      sanitizeFloat(growerFeedAmount),
+		"prelayer_feed_price":    sanitizeFloat(prelayerFeedAmount),
+		"total_medicines":        finalMedicines,
+		"medicine_breakdown":     medicineBreakdownFinal,
+		"other_expenses":         otherExpensesFromTxns,
+		"labor_expenses":         laborExpenses,
+		"other_income":           totalOtherIncome,
+		"hen_sale_income":        henSaleIncome,
+		"total_discounts":        totalDiscounts,
+		"total_tds":              totalTDS,
+		"total_payments":         totalPayments,
+		"payment_breakdown":      paymentBreakdownFinal,
+		"opening_balance":        openingBalance,
+		"closing_balance":        closingBalance,
+		"flock_operating_profit": flockOperatingProfit,
+		"ledger_net_profit":      ledgerNetProfit,
+		"farm_net_profit":        farmNetProfit,
+		"chick_stage_expense":    chickStageExpense,
+		"net_profit":             netProfit,
+		"estimated_hens":         estimatedHens,
+		"actual_head_count":      actualHeadCount,
+		"using_actual_count":     usingActualCount,
+		"egg_percentage":         eggPercentage,
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -1835,19 +2002,24 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type MonthlyData struct {
-		Year            int     `json:"year"`
-		Month           int     `json:"month"`
-		MonthName       string  `json:"month_name"`
-		Sales           float64 `json:"sales"`
-		FeedExpense     float64 `json:"feed_expense"`
-		MedicineExpense float64 `json:"medicine_expense"`
-		LaborExpense    float64 `json:"labor_expense"`
-		OtherExpense    float64 `json:"other_expense"`
-		OtherIncome     float64 `json:"other_income"`
-		TotalDiscounts  float64 `json:"total_discounts"`
-		TotalTDS        float64 `json:"total_tds"`
-		TotalExpense    float64 `json:"total_expense"`
-		NetProfit       float64 `json:"net_profit"`
+		Year                 int     `json:"year"`
+		Month                int     `json:"month"`
+		MonthName            string  `json:"month_name"`
+		Sales                float64 `json:"sales"`
+		FeedExpense          float64 `json:"feed_expense"`
+		LayerFeedExpense     float64 `json:"layer_feed_expense"`
+		RearingFeedExpense   float64 `json:"rearing_feed_expense"`
+		MedicineExpense      float64 `json:"medicine_expense"`
+		LaborExpense         float64 `json:"labor_expense"`
+		OtherExpense         float64 `json:"other_expense"`
+		OtherIncome          float64 `json:"other_income"`
+		TotalDiscounts       float64 `json:"total_discounts"`
+		TotalTDS             float64 `json:"total_tds"`
+		TotalExpense         float64 `json:"total_expense"`
+		FlockOperatingProfit float64 `json:"flock_operating_profit"`
+		LedgerNetProfit      float64 `json:"ledger_net_profit"`
+		FarmNetProfit        float64 `json:"farm_net_profit"`
+		NetProfit            float64 `json:"net_profit"`
 	}
 
 	var monthlyData []MonthlyData
@@ -1856,230 +2028,193 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 	// Anchoring avoids month-skips at month-end (e.g. Mar 31 -> Mar 03 when subtracting one month).
 	nowUTC := time.Now().UTC()
 	currentMonthStart := time.Date(nowUTC.Year(), nowUTC.Month(), 1, 0, 0, 0, 0, time.UTC)
+	windowStart := currentMonthStart.AddDate(0, -11, 0)
+	windowEnd := currentMonthStart.AddDate(0, 1, 0)
+
+	// Check sensitive data once outside the loop
+	shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
+	shouldHideFeed, _ := utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
+	shouldHideProfit, _ := utils.IsDataSensitive(database.DB, tenantID, "NET_PROFIT", perms.CanViewSensitiveData)
+
+	type monthAccum struct {
+		sales              float64
+		feedExpense        float64
+		layerFeedExpense   float64
+		rearingFeedExpense float64
+		medicineExpense    float64
+		laborExpense       float64
+		otherExpense       float64
+		totalDiscounts     float64
+		totalTDS           float64
+		totalOtherIncome   float64
+	}
+	monthMap := make(map[[2]int]*monthAccum, 12)
+	for i := 11; i >= 0; i-- {
+		d := currentMonthStart.AddDate(0, -i, 0)
+		monthMap[[2]int{d.Year(), int(d.Month())}] = &monthAccum{}
+	}
+
+	// Single batch query across the 12-month window grouped by (year, month, category, transaction_type, item_name)
+	rows, qErr := database.DB.Query(`
+		SELECT
+			EXTRACT(YEAR FROM transaction_date)::int AS yr,
+			EXTRACT(MONTH FROM transaction_date)::int AS mo,
+			COALESCE(category, ''),
+			COALESCE(transaction_type, ''),
+			COALESCE(item_name, ''),
+			COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE tenant_id = $1
+			AND transaction_date >= $2
+			AND transaction_date < $3
+		GROUP BY yr, mo, category, transaction_type, item_name
+	`, tenantID, windowStart, windowEnd)
+	if qErr == nil {
+		for rows.Next() {
+			var yr, mo int
+			var cat, tType, itemName string
+			var amt float64
+			if err := rows.Scan(&yr, &mo, &cat, &tType, &itemName, &amt); err != nil {
+				continue
+			}
+			acc, ok := monthMap[[2]int{yr, mo}]
+			if !ok {
+				continue
+			}
+			upperItem := strings.ToUpper(itemName)
+			isMedItem := strings.Contains(upperItem, "D3") ||
+				strings.Contains(upperItem, "VETMULIN") ||
+				strings.Contains(upperItem, "OXYCYCLINE") ||
+				strings.Contains(upperItem, "TIAZIN") ||
+				strings.Contains(upperItem, "BPPS") ||
+				strings.Contains(upperItem, "CTC") ||
+				strings.Contains(upperItem, "SHELL GRIT") ||
+				strings.Contains(upperItem, "ROVIMIX") ||
+				strings.Contains(upperItem, "CHOLIMARIN") ||
+				strings.Contains(upperItem, "ZAGROMIN") ||
+				strings.Contains(upperItem, "G PRO NATURO") ||
+				strings.Contains(upperItem, "NECROVET") ||
+				strings.Contains(upperItem, "TOXOL") ||
+				strings.Contains(upperItem, "FRA C12") ||
+				strings.Contains(upperItem, "FRA C 12") ||
+				strings.Contains(upperItem, "CALCI") ||
+				strings.Contains(upperItem, "CALDLIV") ||
+				strings.Contains(upperItem, "RESPAFEED") ||
+				strings.Contains(upperItem, "VENTRIM") ||
+				strings.Contains(upperItem, "VITAL") ||
+				strings.Contains(upperItem, "MEDICINE") ||
+				strings.Contains(upperItem, "MEDIC") ||
+				strings.Contains(upperItem, "VITAMIN") ||
+				strings.Contains(upperItem, "SUPPLEMENT") ||
+				strings.Contains(upperItem, "GRIT") ||
+				strings.Contains(upperItem, "VET") ||
+				strings.Contains(upperItem, "NECRO") ||
+				strings.Contains(upperItem, "TOX")
+
+			switch {
+			case cat == "EGG" && tType == "SALE":
+				acc.sales += amt
+			case cat == "MEDICINE" && (tType == "PURCHASE" || tType == "SALE"):
+				acc.medicineExpense += amt
+			case cat == "FEED" && (tType == "PURCHASE" || tType == "SALE") && isMedItem:
+				acc.medicineExpense += amt
+			case cat == "FEED" && tType == "PURCHASE" && !isMedItem:
+				acc.feedExpense += amt
+				stage, _ := classifyFeedStage(itemName)
+				if stage == "LAYER" {
+					acc.layerFeedExpense += amt
+				} else {
+					acc.rearingFeedExpense += amt
+				}
+			case cat == "OTHER" && tType == "EXPENSE":
+				if strings.Contains(upperItem, "LABOR") {
+					acc.laborExpense += amt
+				} else {
+					acc.otherExpense += amt
+				}
+			}
+
+			switch tType {
+			case "DISCOUNT":
+				acc.totalDiscounts += amt
+			case "TDS":
+				acc.totalTDS += amt
+			case "INCOME":
+				acc.totalOtherIncome += amt
+			}
+		}
+		rows.Close()
+	}
+
 	for i := 11; i >= 0; i-- {
 		date := currentMonthStart.AddDate(0, -i, 0)
 		year := date.Year()
 		month := int(date.Month())
+		acc := monthMap[[2]int{year, month}]
 
-		var sales, feedExpense, medicineExpense, laborExpense, otherExpense float64
-		var totalDiscounts, totalTDS, totalOtherIncome, netProfit float64
+		sales := acc.sales
+		feedExpense := acc.feedExpense
+		layerFeedExpense := acc.layerFeedExpense
+		rearingFeedExpense := acc.rearingFeedExpense
+		medicineExpense := acc.medicineExpense
+		laborExpense := acc.laborExpense
+		otherExpense := acc.otherExpense
+		totalDiscounts := acc.totalDiscounts
+		totalTDS := acc.totalTDS
+		totalOtherIncome := acc.totalOtherIncome
 
-		// Get sales (egg sales)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'EGG' AND transaction_type = 'SALE'
-		`, tenantID, year, month).Scan(&sales)
-
-		// Get medicine expense first (from MEDICINE category)
-		// Note: Medicine items might be stored as SALE (incorrectly) or PURCHASE/EXPENSE (correctly)
-		var medicineFromMedicineCategory float64
-		err = database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'MEDICINE' AND transaction_type IN ('PURCHASE', 'SALE')
-		`, tenantID, year, month).Scan(&medicineFromMedicineCategory)
-		if err != nil {
-			log.Printf("Error getting medicine from MEDICINE category for %d-%02d: %v", year, month, err)
-		} else {
-			// Debug logging
-			if medicineFromMedicineCategory > 0 {
-				log.Printf("Found medicine expense for %d-%02d: %.2f", year, month, medicineFromMedicineCategory)
+		// Apply default monthly overheads (Labor 80k, Electricity 12k, EMI 2.9L) for active months if not manually entered yet
+		if sales > 0 || feedExpense > 0 {
+			if laborExpense == 0 {
+				laborExpense = 80000
+			}
+			if otherExpense == 0 {
+				otherExpense = 302000 // Electricity (12,000) + EMI (2,90,000)
 			}
 		}
 
-		// Get medicine expenses that might be incorrectly categorized as FEED
-		// Check for common medicine item names (expanded list with more variations)
-		// Note: Include SALE as some medicine items might be incorrectly stored as SALE
-		var medicineFromFeedCategory float64
-		err = database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'FEED' 
-				AND transaction_type IN ('PURCHASE', 'SALE')
-				AND (
-					UPPER(item_name) LIKE '%D3%' OR
-					UPPER(item_name) LIKE '%VETMULIN%' OR
-					UPPER(item_name) LIKE '%OXYCYCLINE%' OR
-					UPPER(item_name) LIKE '%TIAZIN%' OR
-					UPPER(item_name) LIKE '%BPPS%' OR
-					UPPER(item_name) LIKE '%CTC%' OR
-					UPPER(item_name) LIKE '%SHELL GRIT%' OR
-					UPPER(item_name) LIKE '%ROVIMIX%' OR
-					UPPER(item_name) LIKE '%CHOLIMARIN%' OR
-					UPPER(item_name) LIKE '%ZAGROMIN%' OR
-					UPPER(item_name) LIKE '%G PRO NATURO%' OR
-					UPPER(item_name) LIKE '%NECROVET%' OR
-					UPPER(item_name) LIKE '%TOXOL%' OR
-					UPPER(item_name) LIKE '%FRA C12%' OR
-					UPPER(item_name) LIKE '%FRA C 12%' OR
-					UPPER(item_name) LIKE '%CALCI%' OR
-					UPPER(item_name) LIKE '%CALDLIV%' OR
-					UPPER(item_name) LIKE '%RESPAFEED%' OR
-					UPPER(item_name) LIKE '%VENTRIM%' OR
-					UPPER(item_name) LIKE '%VITAL%' OR
-					UPPER(item_name) LIKE '%MEDICINE%' OR
-					UPPER(item_name) LIKE '%MEDIC%' OR
-					UPPER(item_name) LIKE '%VITAMIN%' OR
-					UPPER(item_name) LIKE '%SUPPLEMENT%' OR
-					UPPER(item_name) LIKE '%GRIT%' OR
-					UPPER(item_name) LIKE '%VET%' OR
-					UPPER(item_name) LIKE '%NECRO%' OR
-					UPPER(item_name) LIKE '%TOX%'
-				)
-		`, tenantID, year, month).Scan(&medicineFromFeedCategory)
-		if err != nil {
-			log.Printf("Error getting medicine from FEED category for %d-%02d: %v", year, month, err)
-		}
-
-		// Total medicine expense = medicine from MEDICINE category + medicine from FEED category
-		medicineExpense = medicineFromMedicineCategory + medicineFromFeedCategory
-
-		// Debug logging
-		if medicineExpense > 0 {
-			log.Printf("Total medicine expense for %d-%02d: %.2f (from MEDICINE: %.2f, from FEED: %.2f)",
-				year, month, medicineExpense, medicineFromMedicineCategory, medicineFromFeedCategory)
-		}
-
-		// Get feed expense (excluding medicine items)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'FEED' 
-				AND transaction_type = 'PURCHASE'
-				AND NOT (
-					UPPER(item_name) LIKE '%D3%' OR
-					UPPER(item_name) LIKE '%VETMULIN%' OR
-					UPPER(item_name) LIKE '%OXYCYCLINE%' OR
-					UPPER(item_name) LIKE '%TIAZIN%' OR
-					UPPER(item_name) LIKE '%BPPS%' OR
-					UPPER(item_name) LIKE '%CTC%' OR
-					UPPER(item_name) LIKE '%SHELL GRIT%' OR
-					UPPER(item_name) LIKE '%ROVIMIX%' OR
-					UPPER(item_name) LIKE '%CHOLIMARIN%' OR
-					UPPER(item_name) LIKE '%ZAGROMIN%' OR
-					UPPER(item_name) LIKE '%G PRO NATURO%' OR
-					UPPER(item_name) LIKE '%NECROVET%' OR
-					UPPER(item_name) LIKE '%TOXOL%' OR
-					UPPER(item_name) LIKE '%FRA C12%' OR
-					UPPER(item_name) LIKE '%FRA C 12%' OR
-					UPPER(item_name) LIKE '%CALCI%' OR
-					UPPER(item_name) LIKE '%CALDLIV%' OR
-					UPPER(item_name) LIKE '%RESPAFEED%' OR
-					UPPER(item_name) LIKE '%VENTRIM%' OR
-					UPPER(item_name) LIKE '%VITAL%' OR
-					UPPER(item_name) LIKE '%MEDICINE%' OR
-					UPPER(item_name) LIKE '%MEDIC%' OR
-					UPPER(item_name) LIKE '%VITAMIN%' OR
-					UPPER(item_name) LIKE '%SUPPLEMENT%' OR
-					UPPER(item_name) LIKE '%GRIT%' OR
-					UPPER(item_name) LIKE '%VET%' OR
-					UPPER(item_name) LIKE '%NECRO%' OR
-					UPPER(item_name) LIKE '%TOX%'
-				)
-		`, tenantID, year, month).Scan(&feedExpense)
-
-		// Get labor expense (OTHER category with labor-related item_name)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND transaction_type = 'EXPENSE'
-				AND category = 'OTHER' 
-				AND UPPER(item_name) LIKE '%LABOR%'
-		`, tenantID, year, month).Scan(&laborExpense)
-
-		// Get other expenses (OTHER category, EXPENSE type, excluding labor expenses)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1 
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND category = 'OTHER' 
-				AND transaction_type = 'EXPENSE'
-				AND NOT (UPPER(item_name) LIKE '%LABOR%')
-		`, tenantID, year, month).Scan(&otherExpense)
-
-		// Get discounts (income - add to net profit)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND transaction_type = 'DISCOUNT'
-		`, tenantID, year, month).Scan(&totalDiscounts)
-
-		// Get TDS (expense - deduct from net profit)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND transaction_type = 'TDS'
-		`, tenantID, year, month).Scan(&totalTDS)
-
-		// Get additional incomes (e.g., hen batch sale income)
-		database.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE tenant_id = $1
-				AND EXTRACT(YEAR FROM transaction_date) = $2
-				AND EXTRACT(MONTH FROM transaction_date) = $3
-				AND transaction_type = 'INCOME'
-		`, tenantID, year, month).Scan(&totalOtherIncome)
-
-		// Calculate net profit after discounts:
-		// Egg sales + discounts + other income - (feed + medicine + labor + other + TDS)
-		netProfit = (sales + totalDiscounts + totalOtherIncome) - (feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS)
-
-		// Check sensitive data
-		shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
-		shouldHideFeed, _ := utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
-		shouldHideProfit, _ := utils.IsDataSensitive(database.DB, tenantID, "NET_PROFIT", perms.CanViewSensitiveData)
+		// Tiered profit metrics matching GetEnhancedMonthlySummary
+		flockOperatingProfit := (sales + totalDiscounts) - (layerFeedExpense + medicineExpense)
+		ledgerNetProfit := (sales + totalDiscounts) - (feedExpense + medicineExpense + totalTDS)
+		farmNetProfit := (sales + totalDiscounts + totalOtherIncome) - (feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS)
+		netProfit := farmNetProfit
 
 		if shouldHideEggs {
 			sales = 0
 		}
 		if shouldHideFeed {
 			feedExpense = 0
+			layerFeedExpense = 0
+			rearingFeedExpense = 0
 		}
 		if shouldHideProfit {
+			flockOperatingProfit = 0
+			ledgerNetProfit = 0
+			farmNetProfit = 0
 			netProfit = 0
 		}
 
 		totalExpense := feedExpense + medicineExpense + laborExpense + otherExpense + totalTDS
 
 		monthlyData = append(monthlyData, MonthlyData{
-			Year:            year,
-			Month:           month,
-			MonthName:       date.Format("Jan"),
-			Sales:           sales,
-			FeedExpense:     feedExpense,
-			MedicineExpense: medicineExpense,
-			LaborExpense:    laborExpense,
-			OtherExpense:    otherExpense,
-			OtherIncome:     totalOtherIncome,
-			TotalDiscounts:  totalDiscounts,
-			TotalTDS:        totalTDS,
-			TotalExpense:    totalExpense,
-			NetProfit:       netProfit,
+			Year:                 year,
+			Month:                month,
+			MonthName:            date.Format("Jan"),
+			Sales:                sales,
+			FeedExpense:          feedExpense,
+			LayerFeedExpense:     layerFeedExpense,
+			RearingFeedExpense:   rearingFeedExpense,
+			MedicineExpense:      medicineExpense,
+			LaborExpense:         laborExpense,
+			OtherExpense:         otherExpense,
+			OtherIncome:          totalOtherIncome,
+			TotalDiscounts:       totalDiscounts,
+			TotalTDS:             totalTDS,
+			TotalExpense:         totalExpense,
+			FlockOperatingProfit: flockOperatingProfit,
+			LedgerNetProfit:      ledgerNetProfit,
+			FarmNetProfit:        farmNetProfit,
+			NetProfit:            netProfit,
 		})
 	}
 
@@ -2208,8 +2343,10 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 		case "MEDICINE":
 			query += " AND transaction_type IN ('PURCHASE', 'SALE')"
 		case "OTHER":
-			// Exclude PAYMENT transactions from OTHER expenses - payments are shown separately
-			query += " AND transaction_type = 'PURCHASE'"
+			// Ensure default monthly Labor, Electricity, and EMI rows exist before listing Other Expenses
+			ensureDefaultMonthlyOverheads(tenantID, year, month)
+			// Include both EXPENSE and PURCHASE transactions in Other Expenses
+			query += " AND transaction_type IN ('EXPENSE', 'PURCHASE')"
 		}
 	}
 
@@ -2222,6 +2359,9 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+
+	shouldHideEggs, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
+	shouldHideFeed, _ := utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
 
 	type TransactionDetail struct {
 		ID              int      `json:"id"`
@@ -2282,16 +2422,14 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check sensitive data
-		shouldHide, _ := utils.IsDataSensitive(database.DB, tenantID, "EGGS_SOLD", perms.CanViewSensitiveData)
-		if shouldHide && txn.Category == "EGG" && txn.TransactionType == "SALE" {
+		if shouldHideEggs && txn.Category == "EGG" && txn.TransactionType == "SALE" {
 			txn.Amount = 0
 			if txn.Quantity != nil {
 				*txn.Quantity = 0
 			}
 		}
 
-		shouldHide, _ = utils.IsDataSensitive(database.DB, tenantID, "FEED_PURCHASED", perms.CanViewSensitiveData)
-		if shouldHide && txn.Category == "FEED" && txn.TransactionType == "PURCHASE" {
+		if shouldHideFeed && txn.Category == "FEED" && txn.TransactionType == "PURCHASE" {
 			txn.Amount = 0
 			if txn.Quantity != nil {
 				*txn.Quantity = 0

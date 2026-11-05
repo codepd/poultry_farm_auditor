@@ -20,6 +20,8 @@ interface MonthlyData {
   month_name: string;
   sales: number;
   feed_expense: number;
+  layer_feed_expense?: number;
+  rearing_feed_expense?: number;
   medicine_expense: number;
   labor_expense: number;
   other_expense: number;
@@ -27,6 +29,9 @@ interface MonthlyData {
   total_discounts: number;
   total_tds: number;
   total_expense: number;
+  flock_operating_profit?: number;
+  ledger_net_profit?: number;
+  farm_net_profit?: number;
   net_profit: number;
 }
 
@@ -132,16 +137,32 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
             <span className="tooltip-value">₹{data.total_expense.toLocaleString('en-IN')}</span>
           </div>
           <div className="tooltip-breakdown">
-            <div>• Feed: ₹{data.feed_expense.toLocaleString('en-IN')}</div>
+            <div>• Total Feed: ₹{data.feed_expense.toLocaleString('en-IN')}</div>
+            {(data.rearing_feed_expense || 0) > 0 && (
+              <>
+                <div style={{ paddingLeft: '10px', fontSize: '0.82em', opacity: 0.9 }}>
+                  ↳ Layer Feed: ₹{(data.layer_feed_expense || 0).toLocaleString('en-IN')}
+                </div>
+                <div style={{ paddingLeft: '10px', fontSize: '0.82em', opacity: 0.9 }}>
+                  ↳ Chick/Grower Feed: ₹{(data.rearing_feed_expense || 0).toLocaleString('en-IN')}
+                </div>
+              </>
+            )}
             <div>• Medicine: ₹{data.medicine_expense.toLocaleString('en-IN')}</div>
             <div>• Labor: ₹{data.labor_expense.toLocaleString('en-IN')}</div>
-            <div>• Other: ₹{data.other_expense.toLocaleString('en-IN')}</div>
-            <div>• Other Income: ₹{(data.other_income || 0).toLocaleString('en-IN')}</div>
+            <div>• Other Overheads: ₹{data.other_expense.toLocaleString('en-IN')}</div>
+            <div>• Other Income (Hen Sales): ₹{(data.other_income || 0).toLocaleString('en-IN')}</div>
             <div>• TDS: ₹{(data.total_tds || 0).toLocaleString('en-IN')}</div>
             <div>• Discounts: ₹{(data.total_discounts || 0).toLocaleString('en-IN')}</div>
           </div>
+          {data.ledger_net_profit !== undefined && (
+            <div className="tooltip-item" style={{ fontSize: '0.85em', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
+              <span className="tooltip-label">Statement Net Profit:</span>
+              <span className="tooltip-value">₹{data.ledger_net_profit.toLocaleString('en-IN')}</span>
+            </div>
+          )}
           <div className={`tooltip-item ${data.net_profit >= 0 ? 'profit' : 'loss'}`}>
-            <span className="tooltip-label">Net Profit (after discounts):</span>
+            <span className="tooltip-label">Farm Overall Profit:</span>
             <span className="tooltip-value">₹{data.net_profit.toLocaleString('en-IN')}</span>
           </div>
           <div className="tooltip-note">Click to see full details</div>

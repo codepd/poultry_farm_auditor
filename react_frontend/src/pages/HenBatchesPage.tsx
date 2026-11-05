@@ -7,8 +7,8 @@ import MortalityChart from '../components/HenBatches/MortalityChart';
 import './HenBatchesPage.css';
 
 const HenBatchesPage: React.FC = () => {
-  const { user } = useAuth();
-  const { timezone, dateFormat } = useTenant();
+  const { currentTenant } = useAuth();
+  const { tenant, timezone, dateFormat } = useTenant();
   const [batches, setBatches] = useState<HenBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -44,8 +44,8 @@ const HenBatchesPage: React.FC = () => {
     notes: '',
   });
 
-  // Check if user has permission to add batches (OWNER, CO_OWNER, ADMIN, MANAGER)
-  const canAddBatch = user && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(user.tenants[0]?.role || '');
+  // Check if user has permission to manage batches (OWNER, CO_OWNER, ADMIN, MANAGER)
+  const canAddBatch = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
 
   useEffect(() => {
     fetchBatches();
@@ -253,6 +253,48 @@ const HenBatchesPage: React.FC = () => {
   // Safely calculate total count, handling null/undefined batches
   const totalCount = (batches || []).reduce((sum, batch) => sum + (batch?.current_count || 0), 0);
 
+  const getAgeCategory = (weeks: number): 'chick' | 'grower' | 'pre-layer' | 'layer' => {
+    const chickMax = tenant?.age_category_chick_max_weeks ?? 6;
+    const growerMax = tenant?.age_category_grower_max_weeks ?? 18;
+    const preLayerMax = tenant?.age_category_prelayer_max_weeks ?? 22;
+
+    if (weeks < chickMax) return 'chick';
+    if (weeks < growerMax) return 'grower';
+    if (weeks < preLayerMax) return 'pre-layer';
+    return 'layer';
+  };
+
+  const getCategoryLabel = (category: 'chick' | 'grower' | 'pre-layer' | 'layer'): string => {
+    const chickMax = tenant?.age_category_chick_max_weeks ?? 6;
+    const growerMax = tenant?.age_category_grower_max_weeks ?? 18;
+    const preLayerMax = tenant?.age_category_prelayer_max_weeks ?? 22;
+
+    switch (category) {
+      case 'chick':
+        return `Chick (0-${chickMax} weeks)`;
+      case 'grower':
+        return `Grower (${chickMax}-${growerMax} weeks)`;
+      case 'pre-layer':
+        return `Pre-Layer (${growerMax}-${preLayerMax} weeks)`;
+      case 'layer':
+        return `Layer (${preLayerMax}+ weeks)`;
+    }
+  };
+
+  const categoryData = (batches || []).reduce((acc, batch) => {
+    const age = getCalculatedAge(batch);
+    const category = getAgeCategory(age.weeks);
+    const count = batch?.current_count || 0;
+
+    if (!acc[category]) {
+      acc[category] = { count: 0, batches: [] };
+    }
+    acc[category].count += count;
+    acc[category].batches.push(batch);
+
+    return acc;
+  }, {} as Record<'chick' | 'grower' | 'pre-layer' | 'layer', { count: number; batches: HenBatch[] }>);
+
   return (
     <div className="hen-batches-page">
       <div className="page-header">
@@ -266,12 +308,6 @@ const HenBatchesPage: React.FC = () => {
           </button>
         )}
       </div>
-
-      {!canAddBatch && (
-        <div className="info-message">
-          You don't have permission to add hen batches. Contact an owner or administrator.
-        </div>
-      )}
 
       {(showAddForm || editingBatch) && canAddBatch && (
         <div className="add-batch-form">
@@ -551,106 +587,133 @@ const HenBatchesPage: React.FC = () => {
           {canAddBatch ? 'No hen batches found. Add your first batch above.' : 'No hen batches found.'}
         </div>
       ) : (
-        <div className="batches-grid">
-          {batches.map((batch) => (
-            <div key={batch.id} className="batch-card">
-              {getVisibleRecentSale(batch.id) && (
-                <div className="sold-badge">
-                  SOLD {getVisibleRecentSale(batch.id)?.count?.toLocaleString()} on{' '}
-                  {formatDateForTenant(getVisibleRecentSale(batch.id)!.sale_date, timezone, dateFormat)}
+        <>
+          <div className="age-categories">
+            <h2>Hens by Age Category</h2>
+            <div className="category-cards">
+              {(['chick', 'grower', 'pre-layer', 'layer'] as const).map((category) => (
+                <div key={category} className={`category-card ${category}`}>
+                  <div className="category-label">{getCategoryLabel(category)}</div>
+                  <div className="category-count">
+                    {(categoryData[category]?.count || 0).toLocaleString()}
+                  </div>
+                  <div className="category-percentage">
+                    {totalCount > 0
+                      ? ((categoryData[category]?.count || 0) / totalCount * 100).toFixed(1)
+                      : '0'}%
+                  </div>
                 </div>
-              )}
-              <div className="batch-header">
-                <h3>{batch.batch_name}</h3>
-                <div className="batch-header-right">
-                  <span className="batch-age">{(() => {
-                    const age = getCalculatedAge(batch);
-                    return formatAge(age.weeks, age.days);
-                  })()}</span>
-                  {canAddBatch && (
-                    <div className="batch-actions">
-                      <button
-                        onClick={() => handleEdit(batch)}
-                        className="edit-btn"
-                        title="Edit batch"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDelete(batch)}
-                        className="delete-btn"
-                        title="Delete batch"
-                      >
-                        🗑️
-                      </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="batches-grid">
+            {batches.map((batch) => {
+              const age = getCalculatedAge(batch);
+              const category = getAgeCategory(age.weeks);
+              return (
+                <div key={batch.id} className={`batch-card ${category}`}>
+                  {getVisibleRecentSale(batch.id) && (
+                    <div className="sold-badge">
+                      SOLD {getVisibleRecentSale(batch.id)?.count?.toLocaleString()} on{' '}
+                      {formatDateForTenant(getVisibleRecentSale(batch.id)!.sale_date, timezone, dateFormat)}
                     </div>
                   )}
-                </div>
-              </div>
-              <div className="batch-details">
-                <div className="detail-item">
-                  <span className="label">Current Count:</span>
-                  <span className="value">{batch.current_count.toLocaleString()}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Initial Count:</span>
-                  <span className="value">{batch.initial_count.toLocaleString()}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Reduction (Mortality + Sold):</span>
-                  <span className="value mortality">
-                    {(batch.initial_count - batch.current_count).toLocaleString()}
-                  </span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Total Sold:</span>
-                  <span className="value">{getTotalSold(batch.id).toLocaleString()}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Date Added:</span>
-                  <span className="value">
-                    {formatDateForTenant(batch.date_added, timezone, dateFormat)}
-                  </span>
-                </div>
-                {canAddBatch && (
-                  <div className="batch-actions-bottom">
-                    <button
-                      onClick={() => handleAddMortality(batch.id)}
-                      className="mortality-btn"
-                      title="Record Mortality"
-                    >
-                      📉 Record Mortality
-                    </button>
-                    <button
-                      onClick={() => handleAddSale(batch.id)}
-                      className="sale-btn"
-                      title="Mark as Sold"
-                    >
-                      💰 Mark as Sold
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedBatchId(batch.id);
-                        setSelectedBatchName(batch.batch_name);
-                        setShowMortalityChart(true);
-                      }}
-                      className="chart-btn"
-                      title="View Mortality Chart"
-                    >
-                      📊 View Chart
-                    </button>
+                  <div className="batch-header">
+                    <h3>{batch.batch_name}</h3>
+                    <div className="batch-header-right">
+                      <span className={`category-badge ${category}`}>
+                        {getCategoryLabel(category).split(' ')[0]}
+                      </span>
+                      <span className="batch-age">{formatAge(age.weeks, age.days)}</span>
+                      {canAddBatch && (
+                        <div className="batch-actions">
+                          <button
+                            onClick={() => handleEdit(batch)}
+                            className="edit-btn"
+                            title="Edit batch"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDelete(batch)}
+                            className="delete-btn"
+                            title="Delete batch"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-                {batch.notes && (
-                  <div className="batch-notes">
-                    <span className="label">Notes:</span>
-                    <span className="value">{batch.notes}</span>
+                  <div className="batch-details">
+                    <div className="detail-item">
+                      <span className="label">Current Count:</span>
+                      <span className="value">{batch.current_count.toLocaleString()}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Initial Count:</span>
+                      <span className="value">{batch.initial_count.toLocaleString()}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Reduction (Mortality + Sold):</span>
+                      <span className="value mortality">
+                        {(batch.initial_count - batch.current_count).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Total Sold:</span>
+                      <span className="value">{getTotalSold(batch.id).toLocaleString()}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Date Added:</span>
+                      <span className="value">
+                        {formatDateForTenant(batch.date_added, timezone, dateFormat)}
+                      </span>
+                    </div>
+                    <div className="batch-actions-bottom">
+                      {canAddBatch && (
+                        <>
+                          <button
+                            onClick={() => handleAddMortality(batch.id)}
+                            className="mortality-btn"
+                            title="Record Mortality"
+                          >
+                            📉 Record Mortality
+                          </button>
+                          <button
+                            onClick={() => handleAddSale(batch.id)}
+                            className="sale-btn"
+                            title="Mark as Sold"
+                          >
+                            💰 Mark as Sold
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => {
+                          setSelectedBatchId(batch.id);
+                          setSelectedBatchName(batch.batch_name);
+                          setShowMortalityChart(true);
+                        }}
+                        className="chart-btn"
+                        title="View Mortality Chart"
+                      >
+                        📊 View Chart
+                      </button>
+                    </div>
+                    {batch.notes && (
+                      <div className="batch-notes">
+                        <span className="label">Notes:</span>
+                        <span className="value">{batch.notes}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

@@ -258,6 +258,52 @@
   color: #842029;
 }
 
+.expense-action-buttons {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.expense-action-buttons .edit-btn,
+.expense-action-buttons .delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.05rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background 0.2s;
+  opacity: 0.8;
+}
+
+.expense-action-buttons .edit-btn:hover {
+  background: #e3f2fd;
+  opacity: 1;
+}
+
+.expense-action-buttons .delete-btn:hover {
+  background: #ffebee;
+  opacity: 1;
+}
+
+.expense-mobile-actions {
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.expense-mobile-actions .edit-btn,
+.expense-mobile-actions .delete-btn {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f9fafb;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
 .loading,
 .no-data {
   text-align: center;

@@ -231,6 +231,32 @@ CREATE TABLE IF NOT EXISTS ledger_breakdowns (
 );
 """
 
+CREATE_DOCUMENT_UPLOADS_TABLE = """
+CREATE TABLE IF NOT EXISTS document_uploads (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    s3_bucket VARCHAR(255) NOT NULL,
+    s3_key TEXT NOT NULL,
+    s3_version_id VARCHAR(255),
+    file_name VARCHAR(255) NOT NULL,
+    file_type VARCHAR(50) NOT NULL, -- 'LEDGER_PDF', 'FEED_PRICE_IMAGE', 'PARSED_EXCEL'
+    content_type VARCHAR(100),
+    file_size BIGINT,
+    sha256_hash VARCHAR(64),
+    document_year INTEGER,
+    document_month INTEGER,
+    upload_source VARCHAR(50) DEFAULT 'WEB_PORTAL',
+    upload_status VARCHAR(50) DEFAULT 'UPLOADED',
+    parse_result JSONB,
+    error_message TEXT,
+    uploaded_by_user_id INTEGER REFERENCES users(id),
+    ledger_parse_id INTEGER REFERENCES ledger_parses(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tenant_id, s3_key)
+);
+"""
+
 CREATE_HEN_BATCHES_TABLE = """
 CREATE TABLE IF NOT EXISTS hen_batches (
     id SERIAL PRIMARY KEY,
@@ -301,6 +327,11 @@ CREATE INDEX IF NOT EXISTS idx_price_history_item ON price_history(tenant_id, it
 
 -- Ledger parses indexes
 CREATE INDEX IF NOT EXISTS idx_ledger_parses_tenant_year_month ON ledger_parses(tenant_id, year, month);
+
+-- Document uploads indexes
+CREATE INDEX IF NOT EXISTS idx_document_uploads_tenant_id ON document_uploads(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_document_uploads_status ON document_uploads(tenant_id, upload_status);
+CREATE INDEX IF NOT EXISTS idx_document_uploads_period ON document_uploads(tenant_id, document_year, document_month);
 
 -- Tenant items indexes
 CREATE INDEX IF NOT EXISTS idx_tenant_items_tenant_category ON tenant_items(tenant_id, category);
@@ -408,6 +439,7 @@ def get_all_schema_sql():
         CREATE_PRICE_HISTORY_TABLE,
         CREATE_LEDGER_PARSES_TABLE,
         CREATE_LEDGER_BREAKDOWNS_TABLE,
+        CREATE_DOCUMENT_UPLOADS_TABLE,
         CREATE_HEN_BATCHES_TABLE,
         CREATE_MORTALITY_TABLE,
         CREATE_HEN_BATCH_SALES_TABLE,

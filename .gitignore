@@ -93,6 +93,8 @@ visualizations/**/*.mkv
 **/*.txt
 
 go_api/poultry-farm-api
+go_api/server
+go_api/uploads/
 
 # Terraform (local state/artifacts)
 infra/envs/**/.terraform/

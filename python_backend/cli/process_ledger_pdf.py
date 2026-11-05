@@ -340,6 +340,8 @@ def main():
     parser.add_argument("--out-dir", default="2025_ledgers_excel", help="Output directory for Excel")
     parser.add_argument("--auto-correct", action="store_true", help="Enable parser auto-correct")
     parser.add_argument("--no-parsing-notes", dest="add_parsing_notes", action="store_false")
+    parser.add_argument("--dry-run", action="store_true", help="Parse and validate without committing to DB")
+    parser.add_argument("--json", dest="output_json", action="store_true", help="Output parsed summary and line items as JSON")
     args = parser.parse_args()
 
     pdf_path = Path(args.pdf).resolve()
@@ -356,9 +358,44 @@ def main():
 
     summary = parsed.get("summary", {})
     validation_diff = summary.get("validation_difference")
-    print("Summary:", summary)
-    if validation_diff is not None:
-        print(f"Validation difference: {validation_diff}")
+
+    # Serialize table previews for JSON output
+    def df_to_records(df):
+        if df is None or df.empty:
+            return []
+        # Convert Timestamps / Dates to string
+        records = df.copy()
+        for col in records.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+            records[col] = records[col].dt.strftime('%Y-%m-%d')
+        return records.to_dict(orient="records")
+
+    payload = {
+        "success": True,
+        "pdf_filename": pdf_path.name,
+        "year": year,
+        "month": month,
+        "summary": summary,
+        "validation_difference": validation_diff,
+        "excel_path": str(excel_path),
+        "eggs": df_to_records(parsed.get("eggs_agg")),
+        "feeds": df_to_records(parsed.get("feeds_agg")),
+        "medicines": df_to_records(parsed.get("meds_agg")),
+        "payments": df_to_records(parsed.get("payments")),
+        "discounts": df_to_records(parsed.get("discounts")),
+        "dry_run": args.dry_run,
+        "committed": False
+    }
+
+    if args.dry_run:
+        if args.output_json:
+            import json
+            print(json.dumps(payload, default=str))
+        else:
+            print("Summary (DRY RUN):", summary)
+            if validation_diff is not None:
+                print(f"Validation difference: {validation_diff}")
+            print(f"✅ Excel generated at {excel_path}")
+        return
 
     conn = get_db_connection()
     try:
@@ -367,8 +404,14 @@ def main():
         insert_breakdowns(cur, ledger_parse_id, parsed)
         insert_transactions(cur, args.tenant_id, parsed, f"Ledger import: {pdf_path.name}")
         conn.commit()
-        print(f"✅ Loaded ledger into DB. ledger_parse_id={ledger_parse_id}")
-        print(f"✅ Excel saved to {excel_path}")
+        payload["committed"] = True
+        payload["ledger_parse_id"] = ledger_parse_id
+        if args.output_json:
+            import json
+            print(json.dumps(payload, default=str))
+        else:
+            print(f"✅ Loaded ledger into DB. ledger_parse_id={ledger_parse_id}")
+            print(f"✅ Excel saved to {excel_path}")
     except Exception:
         conn.rollback()
         raise

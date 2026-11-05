@@ -14,6 +14,16 @@ output "frontend_bucket_name" {
   value = module.s3_cdn.bucket_name
 }
 
+output "documents_bucket_name" {
+  value       = module.s3_documents.bucket_name
+  description = "S3 bucket name for ledgers, feed price sheets, and parsed excels"
+}
+
+output "documents_bucket_arn" {
+  value       = module.s3_documents.bucket_arn
+  description = "S3 bucket ARN for ledgers, feed price sheets, and parsed excels"
+}
+
 output "frontend_cdn_domain" {
   value = module.s3_cdn.cloudfront_domain_name
 }

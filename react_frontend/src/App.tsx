@@ -10,6 +10,7 @@ import ExpensesPage from './pages/ExpensesPage';
 import HenBatchesPage from './pages/HenBatchesPage';
 import PriceHistoryPage from './pages/PriceHistoryPage';
 import UserManagementPage from './pages/UserManagementPage';
+import DataUploadPage from './pages/DataUploadPage';
 import './App.css';
 
 function App() {
@@ -55,6 +56,16 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <PriceHistoryPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/upload-sheets"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <DataUploadPage />
                 </Layout>
               </ProtectedRoute>
             }

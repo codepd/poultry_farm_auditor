@@ -218,17 +218,30 @@ export interface EnhancedMonthlySummary {
   egg_breakdown: Array<{ type: string; quantity: number; amount?: number }>;
   total_egg_price: number;
   feed_purchased_tonne: number;
-  feed_breakdown: Array<{ type: string; quantity: number; amount?: number }>;
+  feed_breakdown: Array<{ type: string; quantity: number; amount?: number; stage?: string; stage_label?: string }>;
   total_feed_price: number;
+  layer_feed_price?: number;
+  layer_feed_tonne?: number;
+  rearing_feed_price?: number;
+  rearing_feed_tonne?: number;
+  chick_feed_price?: number;
+  grower_feed_price?: number;
+  prelayer_feed_price?: number;
   total_medicines: number;
   medicine_breakdown?: Array<{ type: string; quantity: number; amount: number }>;
   other_expenses?: number;
+  labor_expenses?: number;
   other_income?: number;
   hen_sale_income?: number;
   total_discounts?: number;
   total_tds?: number;
   total_payments?: number;
   payment_breakdown?: Array<{ type: string; amount: number }>;
+  opening_balance?: number;
+  closing_balance?: number;
+  flock_operating_profit?: number;
+  ledger_net_profit?: number;
+  farm_net_profit?: number;
   chick_stage_expense?: {
     enabled: boolean;
     batch_id?: number;
@@ -587,6 +600,87 @@ export const tenantsAPI = {
   },
   updateTenant: async (id: string, data: Partial<Tenant>) => {
     const response = await api.put<{ success: boolean; data: Tenant }>(`/tenants/${id}`, data);
+    return response.data.data;
+  },
+};
+
+export interface DocumentUploadRecord {
+  id: number;
+  tenant_id: string;
+  s3_bucket: string;
+  s3_key: string;
+  s3_version_id?: string;
+  file_name: string;
+  file_type: 'LEDGER_PDF' | 'FEED_PRICE_IMAGE' | 'PARSED_EXCEL' | string;
+  content_type?: string;
+  file_size: number;
+  sha256_hash: string;
+  document_year?: number;
+  document_month?: number;
+  upload_source: string;
+  upload_status: 'UPLOADED' | 'PARSING' | 'PARSED' | 'COMMITTED' | 'ARCHIVED' | 'ERROR' | string;
+  parse_result?: any;
+  error_message?: string;
+  uploaded_by_user_id?: number;
+  ledger_parse_id?: number;
+  download_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminAPI = {
+  uploadLedger: async (
+    file: File,
+    commit = false,
+    options?: { async?: boolean; fileType?: string; year?: number; month?: number }
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('commit', String(commit));
+    if (options?.async) {
+      formData.append('async', 'true');
+    }
+    if (options?.fileType) {
+      formData.append('file_type', options.fileType);
+    }
+    if (options?.year) {
+      formData.append('year', String(options.year));
+    }
+    if (options?.month) {
+      formData.append('month', String(options.month));
+    }
+    const query = new URLSearchParams({
+      commit: String(commit),
+      ...(options?.async ? { async: 'true' } : {}),
+    });
+    const response = await api.post<{ success: boolean; data: any }>(
+      `/admin/upload-ledger?${query.toString()}`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data.data;
+  },
+  listUploads: async (params?: { file_type?: string; year?: string }) => {
+    const response = await api.get<{ success: boolean; data: DocumentUploadRecord[] }>(
+      '/admin/uploads',
+      { params }
+    );
+    return response.data.data || [];
+  },
+  getUploadStatus: async (id: number) => {
+    const response = await api.get<{ success: boolean; data: DocumentUploadRecord }>(
+      `/admin/uploads/${id}`
+    );
+    return response.data.data;
+  },
+  commitUpload: async (id: number) => {
+    const response = await api.post<{ success: boolean; data: any }>(
+      `/admin/uploads/${id}/commit`
+    );
     return response.data.data;
   },
 };

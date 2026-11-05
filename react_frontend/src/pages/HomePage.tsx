@@ -3,12 +3,18 @@ import MultiCategoryEntry from '../components/Home/MultiCategoryEntry';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
 import YearlyStatistics from '../components/Home/YearlyStatistics';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
-import HenAgeDisplay from '../components/Home/HenAgeDisplay';
 import DateRangeSummaryPanel from '../components/Home/DateRangeSummary';
+import { useAuth } from '../context/AuthContext';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
+  const { currentTenant } = useAuth();
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
+  const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showDateRange, setShowDateRange] = useState(false);
+
+  const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
+
   // Default to last month
   const lastMonth = new Date();
   lastMonth.setMonth(lastMonth.getMonth() - 1);
@@ -23,12 +29,38 @@ const HomePage: React.FC = () => {
 
   return (
     <div className="home-page">
+      {/* Action shortcuts bar */}
+      <div className="home-shortcuts-bar">
+        {canEdit && (
+          <button
+            type="button"
+            className={`shortcut-pill ${showQuickEntry ? 'active' : ''}`}
+            onClick={() => setShowQuickEntry(!showQuickEntry)}
+          >
+            {showQuickEntry ? '✕ Close Quick Entry' : '➕ Quick Data Entry'}
+          </button>
+        )}
 
-      <HenAgeDisplay />
+        <button
+          type="button"
+          className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
+          onClick={() => setShowDateRange(!showDateRange)}
+        >
+          {showDateRange ? '✕ Hide Date Range' : '📅 Custom Date Range Filter'}
+        </button>
+      </div>
 
-      <MultiCategoryEntry />
+      {canEdit && showQuickEntry && (
+        <div className="collapsible-container">
+          <MultiCategoryEntry />
+        </div>
+      )}
 
-      <DateRangeSummaryPanel />
+      {showDateRange && (
+        <div className="collapsible-container">
+          <DateRangeSummaryPanel />
+        </div>
+      )}
 
       <div className="statistics-section">
         {viewMode === 'monthly' && <MonthlyBarChart onMonthClick={handleMonthClick} />}

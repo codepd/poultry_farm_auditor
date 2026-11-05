@@ -1,17 +1,20 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { analyticsAPI, EnhancedMonthlySummary, transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { parseDateValue } from '../utils/dateUtils';
 import './ExpensesPage.css';
 
 // Common expense items
 const COMMON_EXPENSES = [
+  'Labor',
+  'Electricity',
   'Electricity Bill',
+  'EMI',
   'Water Bill',
   'Maintenance',
   'Repair',
   'Transportation',
-  'Labor',
   'Office Supplies',
   'Insurance',
   'Security',
@@ -40,10 +43,14 @@ const MONTH_OPTIONS = [
 ];
 
 const ExpensesPage: React.FC = () => {
+  const { currentTenant } = useAuth();
+  const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
+
   const [expenses, setExpenses] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Transaction | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [monthlySummary, setMonthlySummary] = useState<EnhancedMonthlySummary | null>(null);
@@ -60,30 +67,13 @@ const ExpensesPage: React.FC = () => {
     period_days: undefined as number | undefined,    // Optional
   });
 
-  useEffect(() => {
-    fetchExpenses();
-  }, []);
-
-  useEffect(() => {
-    const fetchMonthlySummary = async () => {
-      try {
-        const summary = await analyticsAPI.getEnhancedMonthlySummary(selectedYear, selectedMonth);
-        setMonthlySummary(summary);
-      } catch (err) {
-        console.error('Failed to load monthly summary', err);
-      }
-    };
-    fetchMonthlySummary();
-  }, [selectedYear, selectedMonth]);
-
-  const fetchExpenses = async () => {
+  const fetchExpenses = useCallback(async () => {
     try {
       setLoading(true);
       setError(''); // Clear any previous errors
       const response = await api.get<{ success: boolean; data: Transaction[]; message?: string }>('/transactions', {
         params: {
           category: 'OTHER',
-          transaction_type: 'EXPENSE',
         },
       });
       setExpenses(response.data.data || []);
@@ -103,6 +93,71 @@ const ExpensesPage: React.FC = () => {
       }
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadMonthData = useCallback(async () => {
+    try {
+      const summary = await analyticsAPI.getEnhancedMonthlySummary(selectedYear, selectedMonth);
+      setMonthlySummary(summary);
+    } catch (err) {
+      console.error('Failed to load monthly summary', err);
+    }
+    await fetchExpenses();
+  }, [selectedYear, selectedMonth, fetchExpenses]);
+
+  useEffect(() => {
+    loadMonthData();
+  }, [loadMonthData]);
+
+  const resetForm = () => {
+    setShowAddForm(false);
+    setEditingExpense(null);
+    setFormData({
+      transaction_date: new Date().toISOString().split('T')[0],
+      category: 'OTHER',
+      selected_expense: '',
+      item_name: '',
+      amount: 0,
+      notes: '',
+      payment_date: '',
+      period_month: '',
+      period_week: undefined,
+      period_days: undefined,
+    });
+  };
+
+  const handleEdit = (expense: Transaction) => {
+    const rawItemName = (expense.item_name || '').trim();
+    const matchedCommon = COMMON_EXPENSES.find(
+      (c) => c.toLowerCase() === rawItemName.toLowerCase()
+    );
+    setEditingExpense(expense);
+    setFormData({
+      transaction_date: expense.transaction_date ? expense.transaction_date.split('T')[0] : new Date().toISOString().split('T')[0],
+      category: expense.category || 'OTHER',
+      selected_expense: matchedCommon ? matchedCommon : OTHER_OPTION,
+      item_name: matchedCommon ? '' : rawItemName,
+      amount: expense.amount || 0,
+      notes: expense.notes || '',
+      payment_date: expense.payment_date ? expense.payment_date.split('T')[0] : '',
+      period_month: expense.period_month ? expense.period_month.substring(0, 7) : '',
+      period_week: expense.period_week ?? undefined,
+      period_days: expense.period_days ?? undefined,
+    });
+    setShowAddForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this expense?')) {
+      return;
+    }
+    try {
+      await transactionsAPI.deleteTransaction(id);
+      await loadMonthData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete expense');
     }
   };
 
@@ -153,24 +208,16 @@ const ExpensesPage: React.FC = () => {
         transactionData.period_days = formData.period_days;
       }
       
-      await transactionsAPI.createTransaction(transactionData);
-      setShowAddForm(false);
-      setFormData({
-        transaction_date: new Date().toISOString().split('T')[0],
-        category: 'OTHER',
-        selected_expense: '',
-        item_name: '',
-        amount: 0,
-        notes: '',
-        payment_date: '',
-        period_month: '',
-        period_week: undefined,
-        period_days: undefined,
-      });
+      if (editingExpense) {
+        await transactionsAPI.updateTransaction(editingExpense.id, transactionData);
+      } else {
+        await transactionsAPI.createTransaction(transactionData);
+      }
+      resetForm();
       setError(''); // Clear any previous errors
-      fetchExpenses();
+      await loadMonthData();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create expense');
+      setError(err.response?.data?.error || `Failed to ${editingExpense ? 'update' : 'create'} expense`);
     }
   };
 
@@ -225,9 +272,20 @@ const ExpensesPage: React.FC = () => {
     <div className="expenses-page">
       <div className="page-header">
         <h1>Miscellaneous Expenses</h1>
-        <button onClick={() => setShowAddForm(!showAddForm)} className="add-btn">
-          {showAddForm ? 'Cancel' : '+ Add Expense'}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => {
+              if (showAddForm) {
+                resetForm();
+              } else {
+                setShowAddForm(true);
+              }
+            }}
+            className="add-btn"
+          >
+            {showAddForm ? 'Cancel' : '+ Add Expense'}
+          </button>
+        )}
       </div>
 
       <div className="add-expense-form">
@@ -404,9 +462,9 @@ const ExpensesPage: React.FC = () => {
         )}
       </div>
 
-      {showAddForm && (
+      {showAddForm && canEdit && (
         <div className="add-expense-form">
-          <h2>Add New Expense</h2>
+          <h2>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</h2>
           <form onSubmit={handleSubmit}>
             <div className="form-row">
               <div className="form-group">
@@ -534,8 +592,10 @@ const ExpensesPage: React.FC = () => {
               />
             </div>
             <div className="form-actions">
-              <button type="submit" className="submit-btn">Add Expense</button>
-              <button type="button" onClick={() => setShowAddForm(false)} className="cancel-btn">
+              <button type="submit" className="submit-btn">
+                {editingExpense ? 'Update Expense' : 'Add Expense'}
+              </button>
+              <button type="button" onClick={resetForm} className="cancel-btn">
                 Cancel
               </button>
             </div>
@@ -584,6 +644,26 @@ const ExpensesPage: React.FC = () => {
                   <span>{new Date(expense.transaction_date).toLocaleDateString()}</span>
                   {expense.notes && <span className="expense-mobile-notes">{expense.notes}</span>}
                 </div>
+                {canEdit && (
+                  <div className="expense-mobile-actions">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(expense)}
+                      className="edit-btn"
+                      title="Edit expense"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(expense.id)}
+                      className="delete-btn"
+                      title="Delete expense"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -596,6 +676,7 @@ const ExpensesPage: React.FC = () => {
                   <th>Amount</th>
                   <th>Notes</th>
                   <th>Status</th>
+                  {canEdit && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -610,6 +691,28 @@ const ExpensesPage: React.FC = () => {
                         {expense.status}
                       </span>
                     </td>
+                    {canEdit && (
+                      <td>
+                        <div className="expense-action-buttons">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(expense)}
+                            className="edit-btn"
+                            title="Edit expense"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(expense.id)}
+                            className="delete-btn"
+                            title="Delete expense"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

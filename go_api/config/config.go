@@ -22,6 +22,9 @@ type Config struct {
 	RefreshCookieSecure   bool
 	RefreshCookieSameSite string
 	RefreshCookieDomain   string
+	S3DocumentsBucket     string
+	AWSRegion             string
+	AWSProfile            string
 }
 
 func Load() *Config {
@@ -39,6 +42,9 @@ func Load() *Config {
 		RefreshCookieSecure:   parseBool(getEnv("REFRESH_COOKIE_SECURE", "false")),
 		RefreshCookieSameSite: getEnv("REFRESH_COOKIE_SAMESITE", "Lax"),
 		RefreshCookieDomain:   getEnv("REFRESH_COOKIE_DOMAIN", ""),
+		S3DocumentsBucket:     getEnv("S3_DOCUMENTS_BUCKET", "kolipannai-dev-documents"),
+		AWSRegion:             getEnv("AWS_REGION", "ap-south-1"),
+		AWSProfile:            getEnv("AWS_PROFILE", "AdminAccess-Pradeep"),
 	}
 }
 
