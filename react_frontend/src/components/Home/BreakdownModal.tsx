@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { analyticsAPI, transactionsAPI, Transaction } from '../../services/api';
+import { useLanguage } from '../../context/LanguageContext';
 import './BreakdownModal.css';
 
 interface BreakdownModalProps {
@@ -21,6 +22,7 @@ const BreakdownModal: React.FC<BreakdownModalProps> = ({
   canEdit,
   onUpdate,
 }) => {
+  const { t, tItem, formatMonthYear } = useLanguage();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -208,10 +210,10 @@ const BreakdownModal: React.FC<BreakdownModalProps> = ({
   };
 
   const categoryTitle = {
-    EGG: 'Eggs Sold',
-    FEED: 'Feed Purchased',
-    MEDICINE: 'Medicine Expenses',
-    OTHER: 'Other Expenses',
+    EGG: t('stats.eggsSold'),
+    FEED: t('stats.totalFeedPurchased'),
+    MEDICINE: t('stats.medicinesSupplements'),
+    OTHER: t('stats.farmOverheadsUtilities'),
   }[category] || category;
 
   if (!isOpen) return null;
@@ -220,7 +222,7 @@ const BreakdownModal: React.FC<BreakdownModalProps> = ({
     <div className="breakdown-modal-overlay" onClick={onClose}>
       <div className="breakdown-modal" onClick={(e) => e.stopPropagation()}>
         <div className="breakdown-modal-header">
-          <h2>{categoryTitle} - {new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+          <h2>{categoryTitle} - {formatMonthYear(year, month)}</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
@@ -441,7 +443,7 @@ const BreakdownModal: React.FC<BreakdownModalProps> = ({
                         ) : (
                           <div className="transaction-details">
                             <div className="transaction-main">
-                              <span className="transaction-item-name">{transaction.item_name}</span>
+                              <span className="transaction-item-name">{tItem(transaction.item_name)}</span>
                               <span className="transaction-quantity">
                                 {formatNumber(transaction.quantity)} {transaction.unit || ''}
                               </span>

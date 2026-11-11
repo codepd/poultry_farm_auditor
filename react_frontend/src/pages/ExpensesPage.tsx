@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { analyticsAPI, EnhancedMonthlySummary, transactionsAPI, Transaction } from '../services/api';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { parseDateValue } from '../utils/dateUtils';
 import './ExpensesPage.css';
 
@@ -44,6 +45,7 @@ const MONTH_OPTIONS = [
 
 const ExpensesPage: React.FC = () => {
   const { currentTenant } = useAuth();
+  const { t, tItem, formatMonthYear, language } = useLanguage();
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
 
   const [expenses, setExpenses] = useState<Transaction[]>([]);
@@ -271,7 +273,7 @@ const ExpensesPage: React.FC = () => {
   return (
     <div className="expenses-page">
       <div className="page-header">
-        <h1>Miscellaneous Expenses</h1>
+        <h1>{t('expenses.title')}</h1>
         {canEdit && (
           <button
             onClick={() => {
@@ -283,16 +285,16 @@ const ExpensesPage: React.FC = () => {
             }}
             className="add-btn"
           >
-            {showAddForm ? 'Cancel' : '+ Add Expense'}
+            {showAddForm ? t('header.cancel') : t('expenses.addExpense')}
           </button>
         )}
       </div>
 
       <div className="add-expense-form">
-        <h2>Month Selection</h2>
+        <h2>{t('expenses.monthSelection')}</h2>
         <div className="form-row">
           <div className="form-group">
-            <label>Year</label>
+            <label>{t('expenses.year')}</label>
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
@@ -307,7 +309,7 @@ const ExpensesPage: React.FC = () => {
             </select>
           </div>
           <div className="form-group">
-            <label>Month</label>
+            <label>{t('expenses.month')}</label>
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
@@ -316,7 +318,7 @@ const ExpensesPage: React.FC = () => {
             >
               {MONTH_OPTIONS.map((month) => (
                 <option key={month.value} value={month.value}>
-                  {month.label}
+                  {new Date(2000, month.value - 1).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', { month: 'long' })}
                 </option>
               ))}
             </select>
@@ -326,29 +328,29 @@ const ExpensesPage: React.FC = () => {
 
       <div className="expenses-summary">
         <div className="summary-card">
-          <div className="summary-label">Selected Month</div>
+          <div className="summary-label">{t('expenses.selectedMonth')}</div>
           <div className="summary-value">
-            {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+            {formatMonthYear(selectedYear, selectedMonth)}
           </div>
         </div>
         <div className="summary-card">
-          <div className="summary-label">Month Total</div>
+          <div className="summary-label">{t('expenses.monthTotal')}</div>
           <div className="summary-value">₹{selectedMonthTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
         </div>
         <div className="summary-card">
-          <div className="summary-label">Month Transactions</div>
+          <div className="summary-label">{t('expenses.monthTransactions')}</div>
           <div className="summary-value">{selectedMonthCount}</div>
         </div>
         <div className="summary-card">
-          <div className="summary-label">Labor (Monthly)</div>
+          <div className="summary-label">{t('expenses.laborMonthly')}</div>
           <div className="summary-value">₹{recurringByType.labor.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
         </div>
         <div className="summary-card">
-          <div className="summary-label">Electricity (Monthly)</div>
+          <div className="summary-label">{t('expenses.electricityMonthly')}</div>
           <div className="summary-value">₹{recurringByType.electricity.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
         </div>
         <div className="summary-card">
-          <div className="summary-label">EMI (Monthly)</div>
+          <div className="summary-label">{t('expenses.emiMonthly')}</div>
           <div className="summary-value">₹{recurringByType.emi.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>
@@ -417,7 +419,7 @@ const ExpensesPage: React.FC = () => {
 
       <div className="add-expense-form">
         <h2>
-          Monthly Expense Breakdown ({new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short', year: 'numeric' })})
+          {t('expenses.monthlyBreakdown')} ({formatMonthYear(selectedYear, selectedMonth, true)})
         </h2>
         {selectedMonthItemBreakdown.length === 0 ? (
           <div className="no-data">No expense entries in this month.</div>
@@ -427,7 +429,7 @@ const ExpensesPage: React.FC = () => {
               {selectedMonthItemBreakdown.map((item) => (
                 <div key={item.item_name} className="expense-mobile-card">
                   <div className="expense-mobile-top">
-                    <div className="expense-mobile-item">{item.item_name}</div>
+                    <div className="expense-mobile-item">{tItem(item.item_name)}</div>
                   </div>
                   <div className="expense-mobile-amount">
                     ₹{item.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -442,15 +444,15 @@ const ExpensesPage: React.FC = () => {
               <table>
                 <thead>
                   <tr>
-                    <th>Item / Description</th>
-                    <th>Transactions</th>
-                    <th>Total Amount</th>
+                    <th>{t('expenses.itemDescription')}</th>
+                    <th>{t('expenses.monthTransactions')}</th>
+                    <th>{t('expenses.amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedMonthItemBreakdown.map((item) => (
                     <tr key={item.item_name}>
-                      <td>{item.item_name}</td>
+                      <td>{tItem(item.item_name)}</td>
                       <td>{item.count}</td>
                       <td>₹{item.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     </tr>
@@ -464,7 +466,7 @@ const ExpensesPage: React.FC = () => {
 
       {showAddForm && canEdit && (
         <div className="add-expense-form">
-          <h2>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</h2>
+          <h2>{editingExpense ? t('expenses.editExpense') : t('expenses.addNewExpense')}</h2>
           <form onSubmit={handleSubmit}>
             <div className="form-row">
               <div className="form-group">
@@ -632,7 +634,7 @@ const ExpensesPage: React.FC = () => {
             {selectedMonthExpenses.map((expense) => (
               <div key={expense.id} className="expense-mobile-card">
                 <div className="expense-mobile-top">
-                  <div className="expense-mobile-item">{expense.item_name || '-'}</div>
+                  <div className="expense-mobile-item">{tItem(expense.item_name)}</div>
                   <span className={`status-badge status-${expense.status.toLowerCase()}`}>
                     {expense.status}
                   </span>
@@ -652,7 +654,7 @@ const ExpensesPage: React.FC = () => {
                       className="edit-btn"
                       title="Edit expense"
                     >
-                      ✏️ Edit
+                      ✏️ {t('header.edit')}
                     </button>
                     <button
                       type="button"
@@ -671,19 +673,19 @@ const ExpensesPage: React.FC = () => {
             <table>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Item/Description</th>
-                  <th>Amount</th>
-                  <th>Notes</th>
-                  <th>Status</th>
-                  {canEdit && <th>Actions</th>}
+                  <th>{t('expenses.date')}</th>
+                  <th>{t('expenses.itemDescription')}</th>
+                  <th>{t('expenses.amount')}</th>
+                  <th>{t('expenses.notes')}</th>
+                  <th>{t('expenses.status')}</th>
+                  {canEdit && <th>{t('expenses.actions')}</th>}
                 </tr>
               </thead>
               <tbody>
                 {selectedMonthExpenses.map((expense) => (
                   <tr key={expense.id}>
                     <td>{new Date(expense.transaction_date).toLocaleDateString()}</td>
-                    <td>{expense.item_name || '-'}</td>
+                    <td>{tItem(expense.item_name)}</td>
                     <td>₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td>{expense.notes || '-'}</td>
                     <td>

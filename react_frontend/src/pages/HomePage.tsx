@@ -5,10 +5,12 @@ import YearlyStatistics from '../components/Home/YearlyStatistics';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
 import DateRangeSummaryPanel from '../components/Home/DateRangeSummary';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
   const { currentTenant } = useAuth();
+  const { t, language } = useLanguage();
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showDateRange, setShowDateRange] = useState(false);
@@ -37,7 +39,7 @@ const HomePage: React.FC = () => {
             className={`shortcut-pill ${showQuickEntry ? 'active' : ''}`}
             onClick={() => setShowQuickEntry(!showQuickEntry)}
           >
-            {showQuickEntry ? '✕ Close Quick Entry' : '➕ Quick Data Entry'}
+            {showQuickEntry ? t('home.quickEntryClose') : t('home.quickEntryOpen')}
           </button>
         )}
 
@@ -46,7 +48,7 @@ const HomePage: React.FC = () => {
           className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
           onClick={() => setShowDateRange(!showDateRange)}
         >
-          {showDateRange ? '✕ Hide Date Range' : '📅 Custom Date Range Filter'}
+          {showDateRange ? t('home.dateRangeClose') : t('home.dateRangeOpen')}
         </button>
       </div>
 
@@ -71,13 +73,13 @@ const HomePage: React.FC = () => {
               className={viewMode === 'monthly' ? 'active' : ''}
               onClick={() => setViewMode('monthly')}
             >
-              Monthly
+              {t('home.monthly')}
             </button>
             <button
               className={viewMode === 'yearly' ? 'active' : ''}
               onClick={() => setViewMode('yearly')}
             >
-              Yearly
+              {t('home.yearly')}
             </button>
           </div>
 
@@ -103,7 +105,7 @@ const HomePage: React.FC = () => {
               >
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                   <option key={month} value={month}>
-                    {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })}
+                    {new Date(2000, month - 1).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', { month: 'long' })}
                   </option>
                 ))}
               </select>

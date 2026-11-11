@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { getOrCreateDeviceId } from '../../utils/deviceId';
 import {
   BarChart,
@@ -45,6 +46,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
   disableTooltipOnMobile = false,
 }) => {
   const { isAuthenticated } = useAuth();
+  const { t, language } = useLanguage();
   const [data, setData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -104,14 +106,15 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
 
   // Format data for Recharts - show full month names and add click handlers
   const chartData = data.map((item) => {
-    const monthFullNameFromAPI = (item.month_name || '').trim();
-    const fallbackMonthName = new Date(Date.UTC(item.year, item.month - 1, 1))
-      .toLocaleString('default', { month: 'long' });
-    const monthFullName = monthFullNameFromAPI || fallbackMonthName;
+    const locale = language === 'ta' ? 'ta-IN' : 'en-IN';
+    const localizedShortMonth = new Date(Date.UTC(item.year, item.month - 1, 1))
+      .toLocaleString(locale, { month: 'short' });
+    const localizedFullMonth = new Date(Date.UTC(item.year, item.month - 1, 1))
+      .toLocaleString(locale, { month: 'long' });
     return {
       ...item,
-      monthLabel: `${monthFullName.substring(0, 3)}\n${item.year}`,
-      monthFullName,
+      monthLabel: `${localizedShortMonth}\n${item.year}`,
+      monthFullName: localizedFullMonth,
       // Format for display
       salesDisplay: item.sales,
       expensesDisplay: item.total_expense,
@@ -187,8 +190,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
   return (
     <div className="monthly-bar-chart">
       <div className="chart-header">
-        <h3>Last 12 Months - Income & Expenses</h3>
-        <div className="chart-subtitle">Click on any month to see detailed information</div>
+        <h3>{t('chart.title12Months')}</h3>
       </div>
       <div className="chart-wrapper">
         <ResponsiveContainer width="100%" height={isMobile ? 280 : 400}>
@@ -214,7 +216,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
             <YAxis
               tick={{ fontSize: isMobile ? 10 : 12, fill: '#666' }}
               tickFormatter={formatYAxis}
-              label={isMobile ? undefined : { value: 'Amount (₹)', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
+              label={isMobile ? undefined : { value: '₹', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
             />
             {shouldShowTooltip && <Tooltip content={<CustomTooltip />} />}
             <Legend
@@ -223,7 +225,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
             />
             <Bar
               dataKey="salesDisplay"
-              name="Sales (Income)"
+              name={t('chart.sales')}
               fill="#4CAF50"
               radius={[4, 4, 0, 0]}
               onClick={(data: any) => {
@@ -242,7 +244,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
             </Bar>
             <Bar
               dataKey="expensesDisplay"
-              name="Total Expenses"
+              name={t('chart.expense')}
               fill="#f44336"
               radius={[4, 4, 0, 0]}
               onClick={(data: any) => {
@@ -264,19 +266,19 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
       </div>
       <div className="chart-summary">
         <div className="summary-item">
-          <span className="summary-label">Total Sales (12 months):</span>
+          <span className="summary-label">{t('chart.sales')} (12M):</span>
           <span className="summary-value sales">
             ₹{data.reduce((sum, d) => sum + d.sales, 0).toLocaleString('en-IN')}
           </span>
         </div>
         <div className="summary-item">
-          <span className="summary-label">Total Expenses (12 months):</span>
+          <span className="summary-label">{t('chart.expense')} (12M):</span>
           <span className="summary-value expense">
             ₹{data.reduce((sum, d) => sum + d.total_expense, 0).toLocaleString('en-IN')}
           </span>
         </div>
         <div className="summary-item">
-          <span className="summary-label">Net Profit (12 months):</span>
+          <span className="summary-label">{t('chart.profit')} (12M):</span>
           <span className={`summary-value ${data.reduce((sum, d) => sum + d.net_profit, 0) >= 0 ? 'profit' : 'loss'}`}>
             ₹{data.reduce((sum, d) => sum + d.net_profit, 0).toLocaleString('en-IN')}
           </span>

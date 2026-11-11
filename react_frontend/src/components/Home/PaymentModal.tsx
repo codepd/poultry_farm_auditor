@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { analyticsAPI, transactionsAPI, Transaction } from '../../services/api';
+import { useLanguage } from '../../context/LanguageContext';
 import './PaymentModal.css';
 
 interface PaymentModalProps {
@@ -19,6 +20,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   canEdit,
   onUpdate,
 }) => {
+  const { t, formatMonthYear } = useLanguage();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -157,7 +159,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
     <div className="breakdown-modal-overlay" onClick={onClose}>
       <div className="breakdown-modal payment-modal" onClick={(e) => e.stopPropagation()}>
         <div className="breakdown-modal-header">
-          <h2>Payments Received - {new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+          <h2>{t('stats.paymentsReceived')} - {formatMonthYear(year, month)}</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 

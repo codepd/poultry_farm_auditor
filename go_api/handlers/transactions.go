@@ -503,6 +503,8 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(user.TenantID)
+
 	// Return created transaction
 	vars := mux.Vars(r)
 	vars["id"] = strconv.Itoa(txnID)
@@ -630,6 +632,8 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update transaction")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	GetTransaction(w, r)
 }
@@ -795,6 +799,8 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete transaction")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,

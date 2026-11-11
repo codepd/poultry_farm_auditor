@@ -107,6 +107,7 @@ func main() {
 
 	// User management routes
 	protectedRouter.HandleFunc("/users", handlers.GetUsers).Methods("GET")
+	protectedRouter.HandleFunc("/users/profile", handlers.GetProfile).Methods("GET")
 	protectedRouter.HandleFunc("/users/profile", handlers.UpdateProfile).Methods("PUT")
 	protectedRouter.HandleFunc("/users/change-password", handlers.ChangePassword).Methods("POST")
 	protectedRouter.HandleFunc("/users/logout-other-devices", handlers.LogoutOtherDevices).Methods("POST")

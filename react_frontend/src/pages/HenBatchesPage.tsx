@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { henBatchesAPI, HenBatch, HenBatchSale } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useTenant } from '../hooks/useTenant';
 import { formatDateForTenant, calculateAgeFromDate } from '../utils/dateUtils';
 import MortalityChart from '../components/HenBatches/MortalityChart';
@@ -8,6 +9,7 @@ import './HenBatchesPage.css';
 
 const HenBatchesPage: React.FC = () => {
   const { currentTenant } = useAuth();
+  const { t } = useLanguage();
   const { tenant, timezone, dateFormat } = useTenant();
   const [batches, setBatches] = useState<HenBatch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -268,16 +270,17 @@ const HenBatchesPage: React.FC = () => {
     const chickMax = tenant?.age_category_chick_max_weeks ?? 6;
     const growerMax = tenant?.age_category_grower_max_weeks ?? 18;
     const preLayerMax = tenant?.age_category_prelayer_max_weeks ?? 22;
+    const wksLabel = t('batches.weeks');
 
     switch (category) {
       case 'chick':
-        return `Chick (0-${chickMax} weeks)`;
+        return `${t('batches.chick')} (0-${chickMax} ${wksLabel})`;
       case 'grower':
-        return `Grower (${chickMax}-${growerMax} weeks)`;
+        return `${t('batches.grower')} (${chickMax}-${growerMax} ${wksLabel})`;
       case 'pre-layer':
-        return `Pre-Layer (${growerMax}-${preLayerMax} weeks)`;
+        return `${t('batches.preLayer')} (${growerMax}-${preLayerMax} ${wksLabel})`;
       case 'layer':
-        return `Layer (${preLayerMax}+ weeks)`;
+        return `${t('batches.layer')} (${preLayerMax}+ ${wksLabel})`;
     }
   };
 
@@ -299,12 +302,12 @@ const HenBatchesPage: React.FC = () => {
     <div className="hen-batches-page">
       <div className="page-header">
         <div>
-          <h1>Hen Batches</h1>
-          <p className="page-subtitle">Total Head Count: <strong>{totalCount.toLocaleString()}</strong></p>
+          <h1>{t('batches.title')}</h1>
+          <p className="page-subtitle">{t('batches.totalHeadCount')} <strong>{totalCount.toLocaleString()}</strong></p>
         </div>
         {canAddBatch && (
           <button onClick={() => setShowAddForm(!showAddForm)} className="add-btn">
-            {showAddForm ? 'Cancel' : '+ Add Batch'}
+            {showAddForm ? t('header.cancel') : t('batches.addBatch')}
           </button>
         )}
       </div>
@@ -589,7 +592,7 @@ const HenBatchesPage: React.FC = () => {
       ) : (
         <>
           <div className="age-categories">
-            <h2>Hens by Age Category</h2>
+            <h2>{t('batches.ageCategoriesTitle')}</h2>
             <div className="category-cards">
               {(['chick', 'grower', 'pre-layer', 'layer'] as const).map((category) => (
                 <div key={category} className={`category-card ${category}`}>
@@ -648,25 +651,25 @@ const HenBatchesPage: React.FC = () => {
                   </div>
                   <div className="batch-details">
                     <div className="detail-item">
-                      <span className="label">Current Count:</span>
+                      <span className="label">{t('batches.currentCount')}</span>
                       <span className="value">{batch.current_count.toLocaleString()}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">Initial Count:</span>
+                      <span className="label">{t('batches.initialCount')}</span>
                       <span className="value">{batch.initial_count.toLocaleString()}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">Reduction (Mortality + Sold):</span>
+                      <span className="label">{t('batches.reduction')}</span>
                       <span className="value mortality">
                         {(batch.initial_count - batch.current_count).toLocaleString()}
                       </span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">Total Sold:</span>
+                      <span className="label">{t('batches.totalSold')}</span>
                       <span className="value">{getTotalSold(batch.id).toLocaleString()}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">Date Added:</span>
+                      <span className="label">{t('batches.dateAdded')}</span>
                       <span className="value">
                         {formatDateForTenant(batch.date_added, timezone, dateFormat)}
                       </span>
@@ -679,14 +682,14 @@ const HenBatchesPage: React.FC = () => {
                             className="mortality-btn"
                             title="Record Mortality"
                           >
-                            📉 Record Mortality
+                            {t('batches.recordMortality')}
                           </button>
                           <button
                             onClick={() => handleAddSale(batch.id)}
                             className="sale-btn"
                             title="Mark as Sold"
                           >
-                            💰 Mark as Sold
+                            {t('batches.markAsSold')}
                           </button>
                         </>
                       )}
@@ -699,7 +702,7 @@ const HenBatchesPage: React.FC = () => {
                         className="chart-btn"
                         title="View Mortality Chart"
                       >
-                        📊 View Chart
+                        {t('batches.viewChart')}
                       </button>
                     </div>
                     {batch.notes && (

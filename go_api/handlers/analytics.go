@@ -11,10 +11,58 @@ import (
 	"poultry-farm-api/utils"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+type analyticsCacheEntry struct {
+	data      interface{}
+	expiresAt time.Time
+}
+
+var (
+	analyticsCacheMu sync.RWMutex
+	analyticsCache   = make(map[string]analyticsCacheEntry)
+)
+
+const analyticsCacheTTL = 3 * time.Minute
+
+func getAnalyticsCached(key string) (interface{}, bool) {
+	analyticsCacheMu.RLock()
+	entry, ok := analyticsCache[key]
+	analyticsCacheMu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func setAnalyticsCached(key string, data interface{}) {
+	analyticsCacheMu.Lock()
+	analyticsCache[key] = analyticsCacheEntry{
+		data:      data,
+		expiresAt: time.Now().Add(analyticsCacheTTL),
+	}
+	analyticsCacheMu.Unlock()
+}
+
+// InvalidateAnalyticsCache clears cached analytics entries for a tenant (or all tenants if empty).
+func InvalidateAnalyticsCache(tenantID string) {
+	analyticsCacheMu.Lock()
+	defer analyticsCacheMu.Unlock()
+	if tenantID == "" {
+		analyticsCache = make(map[string]analyticsCacheEntry)
+		return
+	}
+	prefix := tenantID + ":"
+	for k := range analyticsCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(analyticsCache, k)
+		}
+	}
+}
 
 func sanitizeFloat(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -511,6 +559,14 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	if err != nil || month < 1 || month > 12 {
 		respondWithError(w, http.StatusBadRequest, "Invalid month")
 		return
+	}
+
+	cacheKey := fmt.Sprintf("%s:enhanced:%d:%d:%v", tenantID.String(), year, month, perms.CanViewSensitiveData)
+	if r.URL.Query().Get("refresh") != "true" {
+		if cachedPayload, ok := getAnalyticsCached(cacheKey); ok {
+			respondWithJSON(w, http.StatusOK, cachedPayload)
+			return
+		}
 	}
 
 	// Ensure default Labor, Electricity, and EMI rows exist for this month if not manually entered yet
@@ -1502,49 +1558,155 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		farmNetProfit = 0
 	}
 
-	summary := map[string]interface{}{
-		"year":                   year,
-		"month":                  month,
-		"total_eggs_sold":        totalEggsSold,
-		"egg_breakdown":          eggBreakdownFinal,
-		"total_egg_price":        totalEggPrice,
-		"feed_purchased_tonne":   feedPurchasedTonne,
-		"feed_breakdown":         feedBreakdownFinal,
-		"total_feed_price":       totalFeedPrice,
-		"layer_feed_price":       sanitizeFloat(layerFeedAmount),
-		"layer_feed_tonne":       sanitizeFloat(layerFeedKg / 1000.0),
-		"rearing_feed_price":     sanitizeFloat(rearingFeedAmount),
-		"rearing_feed_tonne":     sanitizeFloat(rearingFeedKg / 1000.0),
-		"chick_feed_price":       sanitizeFloat(chickFeedAmount),
-		"grower_feed_price":      sanitizeFloat(growerFeedAmount),
-		"prelayer_feed_price":    sanitizeFloat(prelayerFeedAmount),
-		"total_medicines":        finalMedicines,
-		"medicine_breakdown":     medicineBreakdownFinal,
-		"other_expenses":         otherExpensesFromTxns,
-		"labor_expenses":         laborExpenses,
-		"other_income":           totalOtherIncome,
-		"hen_sale_income":        henSaleIncome,
-		"total_discounts":        totalDiscounts,
-		"total_tds":              totalTDS,
-		"total_payments":         totalPayments,
-		"payment_breakdown":      paymentBreakdownFinal,
-		"opening_balance":        openingBalance,
-		"closing_balance":        closingBalance,
-		"flock_operating_profit": flockOperatingProfit,
-		"ledger_net_profit":      ledgerNetProfit,
-		"farm_net_profit":        farmNetProfit,
-		"chick_stage_expense":    chickStageExpense,
-		"net_profit":             netProfit,
-		"estimated_hens":         estimatedHens,
-		"actual_head_count":      actualHeadCount,
-		"using_actual_count":     usingActualCount,
-		"egg_percentage":         eggPercentage,
+	// Per-egg unit economics & feed conversion efficiency
+	var eggSellingPricePerEgg, layerFeedCostPerEgg, allInCostPerEgg, netProfitPerEgg float64
+	if totalEggsSold > 0 {
+		eggSellingPricePerEgg = sanitizeFloat(totalEggPrice / totalEggsSold)
+		layerFeedCostPerEgg = sanitizeFloat(layerFeedAmount / totalEggsSold)
+		allInCostPerEgg = sanitizeFloat((totalFeedPrice + finalMedicines + otherExpensesFromTxns + totalTDS) / totalEggsSold)
+		netProfitPerEgg = sanitizeFloat(farmNetProfit / totalEggsSold)
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+	var eggsPerKgLayerFeed float64
+	if layerFeedKg > 0 {
+		eggsPerKgLayerFeed = sanitizeFloat(totalEggsSold / layerFeedKg)
+	}
+
+	activeLayerHens := actualHeadCount
+	if !usingActualCount || activeLayerHens <= 0 {
+		activeLayerHens = float64(estimatedHens)
+	}
+	var layerFeedGramsPerHenPerDay float64
+	if activeLayerHens > 0 && daysInMonth > 0 && layerFeedKg > 0 {
+		layerFeedGramsPerHenPerDay = sanitizeFloat((layerFeedKg * 1000.0) / (activeLayerHens * float64(daysInMonth)))
+	}
+
+	// Smart Flock & Feed Intelligence Alerts
+	var flockAlerts []map[string]interface{}
+	if chickFeedKg > 0 || growerFeedKg > 0 {
+		hasMatchingChickBatch := false
+		hasMatchingGrowerBatch := false
+
+		checkRows, checkErr := database.DB.Query(`
+			SELECT date_added, COALESCE(age_weeks, 0), COALESCE(age_days, 0)
+			FROM hen_batches
+			WHERE tenant_id = $1 AND current_count > 0
+		`, tenantID)
+		if checkErr == nil {
+			for checkRows.Next() {
+				var bDate time.Time
+				var bWeeks, bDays int
+				if err := checkRows.Scan(&bDate, &bWeeks, &bDays); err != nil {
+					continue
+				}
+				initialDays := bWeeks*7 + bDays
+				// Calculate batch age in weeks at the end of this month
+				ageAtMonthEndDays := initialDays + int(monthEnd.Sub(bDate).Hours()/24)
+				ageAtMonthStartDays := initialDays + int(monthStart.Sub(bDate).Hours()/24)
+				if ageAtMonthEndDays >= 0 && ageAtMonthStartDays <= 8*7 {
+					hasMatchingChickBatch = true
+				}
+				if ageAtMonthEndDays >= 5*7 && ageAtMonthStartDays <= 20*7 {
+					hasMatchingGrowerBatch = true
+				}
+			}
+			checkRows.Close()
+		}
+
+		// Estimate how many weeks old a chick batch fed in this month would be today
+		monthsSince := (time.Now().Year()-year)*12 + (int(time.Now().Month()) - month)
+		estimatedWeeksNow := monthsSince*4 + 3
+		if estimatedWeeksNow < 1 {
+			estimatedWeeksNow = 2
+		}
+
+		if chickFeedKg >= 50 && !hasMatchingChickBatch {
+			flockAlerts = append(flockAlerts, map[string]interface{}{
+				"code":                        "UNREGISTERED_CHICK_BATCH",
+				"severity":                    "warning",
+				"stage":                       "CHICK",
+				"feed_tonne":                  sanitizeFloat(chickFeedKg / 1000.0),
+				"feed_amount":                 sanitizeFloat(chickFeedAmount),
+				"estimated_current_age_weeks": estimatedWeeksNow,
+			})
+		} else if growerFeedKg >= 100 && !hasMatchingGrowerBatch && !hasMatchingChickBatch {
+			flockAlerts = append(flockAlerts, map[string]interface{}{
+				"code":                        "UNREGISTERED_GROWER_BATCH",
+				"severity":                    "warning",
+				"stage":                       "GROWER",
+				"feed_tonne":                  sanitizeFloat(growerFeedKg / 1000.0),
+				"feed_amount":                 sanitizeFloat(growerFeedAmount),
+				"estimated_current_age_weeks": estimatedWeeksNow + 8,
+			})
+		}
+	}
+
+	if usingActualCount && layerFeedGramsPerHenPerDay > 0 && (layerFeedGramsPerHenPerDay < 85 || layerFeedGramsPerHenPerDay > 140) {
+		flockAlerts = append(flockAlerts, map[string]interface{}{
+			"code":                           "FEED_INTAKE_ANOMALY",
+			"severity":                       "info",
+			"stage":                          "LAYER",
+			"layer_feed_grams_per_hen_day":   layerFeedGramsPerHenPerDay,
+			"benchmark_min_grams":            105,
+			"benchmark_max_grams":            120,
+		})
+	}
+	if flockAlerts == nil {
+		flockAlerts = []map[string]interface{}{}
+	}
+
+	summary := map[string]interface{}{
+		"year":                             year,
+		"month":                            month,
+		"total_eggs_sold":                  totalEggsSold,
+		"egg_breakdown":                    eggBreakdownFinal,
+		"total_egg_price":                  totalEggPrice,
+		"feed_purchased_tonne":             feedPurchasedTonne,
+		"feed_breakdown":                   feedBreakdownFinal,
+		"total_feed_price":                 totalFeedPrice,
+		"layer_feed_price":                 sanitizeFloat(layerFeedAmount),
+		"layer_feed_tonne":                 sanitizeFloat(layerFeedKg / 1000.0),
+		"rearing_feed_price":               sanitizeFloat(rearingFeedAmount),
+		"rearing_feed_tonne":               sanitizeFloat(rearingFeedKg / 1000.0),
+		"chick_feed_price":                 sanitizeFloat(chickFeedAmount),
+		"grower_feed_price":                sanitizeFloat(growerFeedAmount),
+		"prelayer_feed_price":              sanitizeFloat(prelayerFeedAmount),
+		"total_medicines":                  finalMedicines,
+		"medicine_breakdown":               medicineBreakdownFinal,
+		"other_expenses":                   otherExpensesFromTxns,
+		"labor_expenses":                   laborExpenses,
+		"other_income":                     totalOtherIncome,
+		"hen_sale_income":                  henSaleIncome,
+		"total_discounts":                  totalDiscounts,
+		"total_tds":                        totalTDS,
+		"total_payments":                   totalPayments,
+		"payment_breakdown":                paymentBreakdownFinal,
+		"opening_balance":                  openingBalance,
+		"closing_balance":                  closingBalance,
+		"flock_operating_profit":           flockOperatingProfit,
+		"ledger_net_profit":                ledgerNetProfit,
+		"farm_net_profit":                  farmNetProfit,
+		"chick_stage_expense":              chickStageExpense,
+		"net_profit":                       netProfit,
+		"estimated_hens":                   estimatedHens,
+		"actual_head_count":                actualHeadCount,
+		"using_actual_count":               usingActualCount,
+		"egg_percentage":                   eggPercentage,
+		"egg_selling_price_per_egg":        eggSellingPricePerEgg,
+		"layer_feed_cost_per_egg":          layerFeedCostPerEgg,
+		"all_in_cost_per_egg":              allInCostPerEgg,
+		"net_profit_per_egg":               netProfitPerEgg,
+		"eggs_per_kg_layer_feed":           eggsPerKgLayerFeed,
+		"layer_feed_grams_per_hen_per_day": layerFeedGramsPerHenPerDay,
+		"flock_alerts":                     flockAlerts,
+	}
+
+	payload := map[string]interface{}{
 		"success": true,
 		"data":    []map[string]interface{}{summary},
-	})
+	}
+	setAnalyticsCached(cacheKey, payload)
+	respondWithJSON(w, http.StatusOK, payload)
 }
 
 // GetAllYearsSummary returns yearly summaries
@@ -2001,6 +2163,12 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheKey12 := fmt.Sprintf("%s:last12:%v", tenantID.String(), perms.CanViewSensitiveData)
+	if cachedPayload, ok := getAnalyticsCached(cacheKey12); ok {
+		respondWithJSON(w, http.StatusOK, cachedPayload)
+		return
+	}
+
 	type MonthlyData struct {
 		Year                 int     `json:"year"`
 		Month                int     `json:"month"`
@@ -2218,10 +2386,12 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+	payload12 := map[string]interface{}{
 		"success": true,
 		"data":    monthlyData,
-	})
+	}
+	setAnalyticsCached(cacheKey12, payload12)
+	respondWithJSON(w, http.StatusOK, payload12)
 }
 
 // GetMonthlyBreakdown returns detailed transaction breakdown for a specific month and category

@@ -1,9 +1,11 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { adminAPI, DocumentUploadRecord } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import './DataUploadPage.css';
 
 const DataUploadPage: React.FC = () => {
+  const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -21,6 +23,7 @@ const DataUploadPage: React.FC = () => {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [yearFilter, setYearFilter] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -210,13 +213,24 @@ const DataUploadPage: React.FC = () => {
 
   const summary = parsedData?.summary;
 
+  const filteredUploadHistory = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return uploadHistory;
+    return uploadHistory.filter(
+      (rec) =>
+        rec.file_name.toLowerCase().includes(q) ||
+        rec.s3_key.toLowerCase().includes(q) ||
+        (rec.upload_source || '').toLowerCase().includes(q)
+    );
+  }, [uploadHistory, searchQuery]);
+
   return (
     <div className="data-upload-page">
       <div className="upload-header">
         <div>
-          <h2>Monthly Data Sheet & S3 Audit Portal</h2>
+          <h2>{t('upload.title')}</h2>
           <span className="upload-subtitle">
-            Upload monthly ledger PDFs, parsed Excel sheets, or feed price rate cards. All files are archived in AWS S3 with SHA-256 verification and parsed asynchronously.
+            {t('upload.subtitle')}
           </span>
         </div>
       </div>
@@ -573,30 +587,38 @@ const DataUploadPage: React.FC = () => {
       <div className="audit-vault-section">
         <div className="audit-vault-header">
           <div>
-            <h3>☁️ AWS S3 Document Audit Vault</h3>
+            <h3>{t('upload.vaultTitle')}</h3>
             <span className="audit-vault-subtitle">
-              Immutable archive of monthly ledgers, feed price sheets, and parsed Excel spreadsheets stored in S3.
+              {t('upload.vaultSubtitle')}
             </span>
           </div>
           <div className="audit-vault-filters">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('upload.searchPlaceholder')}
+              className="vault-search-input"
+            />
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               className="vault-filter-select"
             >
-              <option value="ALL">All Document Types</option>
-              <option value="LEDGER_PDF">Ledger PDFs</option>
-              <option value="FEED_PRICE_IMAGE">Feed Price History</option>
-              <option value="PARSED_EXCEL">Parsed Excels</option>
+              <option value="ALL">{t('upload.allTypes')}</option>
+              <option value="LEDGER_PDF">{t('upload.ledgerPdfs')}</option>
+              <option value="FEED_PRICE_IMAGE">{t('upload.feedPriceHistory')}</option>
+              <option value="PARSED_EXCEL">{t('upload.parsedExcels')}</option>
             </select>
             <select
               value={yearFilter}
               onChange={(e) => setYearFilter(e.target.value)}
               className="vault-filter-select"
             >
-              <option value="ALL">All Years</option>
+              <option value="ALL">{t('upload.allYears')}</option>
               <option value="2026">2026</option>
               <option value="2025">2025</option>
+              <option value="2024">2024</option>
             </select>
             <button
               type="button"
@@ -623,7 +645,7 @@ const DataUploadPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {uploadHistory.length === 0 ? (
+              {filteredUploadHistory.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty-vault-cell">
                     {loadingHistory
@@ -632,7 +654,7 @@ const DataUploadPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                uploadHistory.map((rec) => (
+                filteredUploadHistory.map((rec) => (
                   <tr key={rec.id}>
                     <td className="item-name-cell">
                       <strong>{rec.file_name}</strong>

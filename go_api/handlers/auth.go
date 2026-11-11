@@ -20,11 +20,12 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token    string       `json:"token"`
-	UserID   int          `json:"user_id"`
-	Email    string       `json:"email"`
-	FullName string       `json:"full_name"`
-	Tenants  []TenantInfo `json:"tenants"`
+	Token             string       `json:"token"`
+	UserID            int          `json:"user_id"`
+	Email             string       `json:"email"`
+	FullName          string       `json:"full_name"`
+	PreferredLanguage string       `json:"preferred_language"`
+	Tenants           []TenantInfo `json:"tenants"`
 }
 
 type TenantInfo struct {
@@ -46,14 +47,15 @@ func Login(cfg *config.Config) http.HandlerFunc {
 		// Get user from database
 		var userID int
 		var passwordHash string
-		var fullName string
+		var fullName sql.NullString
+		var preferredLanguage string
 		var isActive bool
 
 		err := database.DB.QueryRow(`
-			SELECT id, password_hash, full_name, is_active
+			SELECT id, password_hash, full_name, COALESCE(preferred_language, 'en'), is_active
 			FROM users
 			WHERE email = $1
-		`, req.Email).Scan(&userID, &passwordHash, &fullName, &isActive)
+		`, req.Email).Scan(&userID, &passwordHash, &fullName, &preferredLanguage, &isActive)
 
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusUnauthorized, "Invalid email or password")
@@ -133,14 +135,23 @@ func Login(cfg *config.Config) http.HandlerFunc {
 		}
 		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
+		fullNameStr := ""
+		if fullName.Valid {
+			fullNameStr = fullName.String
+		}
+		if preferredLanguage == "" {
+			preferredLanguage = "en"
+		}
+
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"data": LoginResponse{
-				Token:    tokenString,
-				UserID:   userID,
-				Email:    req.Email,
-				FullName: fullName,
-				Tenants:  tenants,
+				Token:             tokenString,
+				UserID:            userID,
+				Email:             req.Email,
+				FullName:          fullNameStr,
+				PreferredLanguage: preferredLanguage,
+				Tenants:           tenants,
 			},
 		})
 	}

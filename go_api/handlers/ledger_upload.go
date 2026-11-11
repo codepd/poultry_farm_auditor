@@ -428,6 +428,7 @@ func updateDocumentUploadAfterParse(uploadID int, tenantID uuid.UUID, result map
 	status := "PARSED"
 	if committed {
 		status = "COMMITTED"
+		InvalidateAnalyticsCache(tenantID.String())
 	}
 
 	var parsedYear, parsedMonth *int

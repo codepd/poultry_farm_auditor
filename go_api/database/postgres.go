@@ -35,6 +35,7 @@ func runMigrations() {
 	migrations := []string{
 		"ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
 		"ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20) UNIQUE",
+		"ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) DEFAULT 'en'",
 		`CREATE TABLE IF NOT EXISTS invitations (
 			id SERIAL PRIMARY KEY,
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

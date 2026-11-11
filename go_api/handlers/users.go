@@ -347,7 +347,38 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateProfile lets a user update their own profile (name, etc.)
+// GetProfile returns the authenticated user's profile (including preferred_language)
+func GetProfile(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	var email, phone, fullName, preferredLanguage string
+	err := database.DB.QueryRow(`
+		SELECT COALESCE(email, ''), COALESCE(phone, ''), COALESCE(full_name, ''), COALESCE(preferred_language, 'en')
+		FROM users
+		WHERE id = $1
+	`, user.UserID).Scan(&email, &phone, &fullName, &preferredLanguage)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load profile")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":            user.UserID,
+			"email":              email,
+			"phone":              phone,
+			"full_name":          fullName,
+			"preferred_language": preferredLanguage,
+		},
+	})
+}
+
+// UpdateProfile lets a user update their own profile (full_name and/or preferred_language)
 func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
 	if user == nil {
@@ -356,32 +387,60 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		FullName string `json:"full_name"`
+		FullName          *string `json:"full_name"`
+		PreferredLanguage *string `json:"preferred_language"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	fullName := strings.TrimSpace(req.FullName)
-	if fullName == "" {
-		respondWithError(w, http.StatusBadRequest, "Full name is required")
+	if req.FullName == nil && req.PreferredLanguage == nil {
+		respondWithError(w, http.StatusBadRequest, "At least one of full_name or preferred_language is required")
 		return
 	}
 
-	_, err := database.DB.Exec(`
-		UPDATE users SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, fullName, user.UserID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update profile")
-		return
+	if req.FullName != nil {
+		fullName := strings.TrimSpace(*req.FullName)
+		if fullName == "" {
+			respondWithError(w, http.StatusBadRequest, "Full name cannot be empty")
+			return
+		}
+		if _, err := database.DB.Exec(`
+			UPDATE users SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, fullName, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update full name")
+			return
+		}
 	}
+
+	if req.PreferredLanguage != nil {
+		lang := strings.ToLower(strings.TrimSpace(*req.PreferredLanguage))
+		if lang != "en" && lang != "ta" {
+			respondWithError(w, http.StatusBadRequest, "Unsupported language code (allowed: en, ta)")
+			return
+		}
+		if _, err := database.DB.Exec(`
+			UPDATE users SET preferred_language = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, lang, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update preferred language")
+			return
+		}
+	}
+
+	var updatedFullName, updatedLang string
+	_ = database.DB.QueryRow(`
+		SELECT COALESCE(full_name, ''), COALESCE(preferred_language, 'en')
+		FROM users
+		WHERE id = $1
+	`, user.UserID).Scan(&updatedFullName, &updatedLang)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Profile updated",
 		"data": map[string]interface{}{
-			"full_name": fullName,
+			"full_name":          updatedFullName,
+			"preferred_language": updatedLang,
 		},
 	})
 }

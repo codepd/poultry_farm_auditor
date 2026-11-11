@@ -103,6 +103,7 @@ export interface User {
   user_id: number;
   email: string;
   full_name: string;
+  preferred_language?: 'en' | 'ta' | string;
   tenants: TenantInfo[];
 }
 
@@ -145,6 +146,7 @@ export interface LoginResponse {
   user_id: number;
   email: string;
   full_name: string;
+  preferred_language?: 'en' | 'ta' | string;
   tenants: TenantInfo[];
 }
 
@@ -211,6 +213,18 @@ export interface Employee {
   updated_at: string;
 }
 
+export interface FlockAlert {
+  code: string;
+  severity: 'warning' | 'info' | string;
+  stage?: string;
+  feed_tonne?: number;
+  feed_amount?: number;
+  estimated_current_age_weeks?: number;
+  layer_feed_grams_per_hen_day?: number;
+  benchmark_min_grams?: number;
+  benchmark_max_grams?: number;
+}
+
 export interface EnhancedMonthlySummary {
   year: number;
   month: number;
@@ -260,6 +274,13 @@ export interface EnhancedMonthlySummary {
   actual_head_count?: number;
   using_actual_count?: boolean;
   egg_percentage: number;
+  egg_selling_price_per_egg?: number;
+  layer_feed_cost_per_egg?: number;
+  all_in_cost_per_egg?: number;
+  net_profit_per_egg?: number;
+  eggs_per_kg_layer_feed?: number;
+  layer_feed_grams_per_hen_per_day?: number;
+  flock_alerts?: FlockAlert[];
 }
 
 export interface YearlySummary {
@@ -571,8 +592,12 @@ export const usersAPI = {
     const response = await api.get<{ success: boolean; data: InvitationInfo[] }>('/users/invitations');
     return response.data.data || [];
   },
-  updateProfile: async (data: { full_name: string }) => {
-    const response = await api.put<{ success: boolean; message: string; data: any }>('/users/profile', data);
+  getProfile: async (): Promise<{ user_id: number; email: string; phone: string; full_name: string; preferred_language: string }> => {
+    const response = await api.get<{ success: boolean; data: { user_id: number; email: string; phone: string; full_name: string; preferred_language: string } }>('/users/profile');
+    return response.data.data;
+  },
+  updateProfile: async (data: { full_name?: string; preferred_language?: string }) => {
+    const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
     return response.data;
   },
   changePassword: async (data: { current_password?: string; new_password: string; logout_other_devices?: boolean }) => {

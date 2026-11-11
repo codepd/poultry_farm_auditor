@@ -207,11 +207,12 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 		var userID int
 		var email sql.NullString
 		var fullName sql.NullString
+		var preferredLanguage string
 		var isActive bool
 
 		err = database.DB.QueryRow(
-			"SELECT id, email, full_name, is_active FROM users WHERE phone = $1", phone,
-		).Scan(&userID, &email, &fullName, &isActive)
+			"SELECT id, email, full_name, COALESCE(preferred_language, 'en'), is_active FROM users WHERE phone = $1", phone,
+		).Scan(&userID, &email, &fullName, &preferredLanguage, &isActive)
 
 		if err == sql.ErrNoRows {
 			// New user — look up invitation for role
@@ -344,14 +345,19 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 		}
 		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
+		if preferredLanguage == "" {
+			preferredLanguage = "en"
+		}
+
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"data": LoginResponse{
-				Token:    tokenString,
-				UserID:   userID,
-				Email:    emailStr,
-				FullName: fullNameStr,
-				Tenants:  tenants,
+				Token:             tokenString,
+				UserID:            userID,
+				Email:             emailStr,
+				FullName:          fullNameStr,
+				PreferredLanguage: preferredLanguage,
+				Tenants:           tenants,
 			},
 		})
 	}
