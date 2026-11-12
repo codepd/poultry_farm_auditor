@@ -7,7 +7,10 @@ import Navbar from './components/Layout/Navbar';
 import MonthlyStatistics from './components/Home/MonthlyStatistics';
 import DailyQuickLogModal from './components/Home/DailyQuickLogModal';
 import DataUploadPage from './pages/DataUploadPage';
-import { analyticsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI } from './services/api';
+import LoginPage from './pages/LoginPage';
+import UserManagementPage from './pages/UserManagementPage';
+import HenBatchesPage from './pages/HenBatchesPage';
+import api, { analyticsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI, authAPI } from './services/api';
 
 const mockNavigate = jest.fn();
 jest.mock(
@@ -27,6 +30,9 @@ jest.mock(
 let mockCurrentRole = 'OWNER';
 let mockMustSetPassword = false;
 const mockUpdateUser = jest.fn();
+const mockLogin = jest.fn();
+const mockLoginWithOTP = jest.fn();
+const mockLoginWithMagicLink = jest.fn();
 
 // Mock AuthContext so components render with configurable role
 jest.mock('./context/AuthContext', () => ({
@@ -45,17 +51,54 @@ jest.mock('./context/AuthContext', () => ({
       name: 'Pradeep Farm',
       role: mockCurrentRole,
     },
+    login: mockLogin,
+    loginWithOTP: mockLoginWithOTP,
+    loginWithMagicLink: mockLoginWithMagicLink,
     logout: jest.fn(),
     updateUser: mockUpdateUser,
   }),
 }));
 
+jest.mock('./hooks/useTenant', () => ({
+  useTenant: () => ({
+    tenant: {
+      id: '8d7939f7-b716-4eb0-98d4-544c18c8dfb8',
+      name: 'Pradeep Farm',
+      country_code: '+91',
+      currency: 'INR',
+      number_format: 'en-IN',
+      date_format: 'DD/MM/YYYY',
+      timezone: 'Asia/Kolkata',
+    },
+    timezone: 'Asia/Kolkata',
+    dateFormat: 'DD/MM/YYYY',
+  }),
+}));
+
 jest.mock('./services/api', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+    put: jest.fn(),
+    delete: jest.fn(),
+  },
+  authAPI: {
+    getCountryCodes: jest.fn(),
+    sendOTP: jest.fn(),
+    verifyOTP: jest.fn(),
+    login: jest.fn(),
+    loginWithMagicLink: jest.fn(),
+  },
   analyticsAPI: {
     getEnhancedMonthlySummary: jest.fn(),
     getMonthlyBreakdown: jest.fn(),
   },
   usersAPI: {
+    getUsers: jest.fn(),
+    getInvitations: jest.fn(),
+    inviteUser: jest.fn(),
+    generateMagicLink: jest.fn(),
     getProfile: jest.fn(),
     updateProfile: jest.fn(),
     changePassword: jest.fn(),
@@ -72,6 +115,8 @@ jest.mock('./services/api', () => ({
   },
   henBatchesAPI: {
     getHenBatches: jest.fn(),
+    getSalesHistory: jest.fn(),
+    createHenBatch: jest.fn(),
     createMortality: jest.fn(),
   },
 }));
@@ -474,6 +519,117 @@ describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vaul
           amount: 55000,
         })
       );
+    });
+  });
+});
+
+describe('QA Suite 4: End-to-End Functional Workflows (Login, Team Magic Link, Hen Batches & Mortality)', () => {
+  beforeEach(() => {
+    mockCurrentRole = 'OWNER';
+    mockMustSetPassword = false;
+    mockNavigate.mockReset();
+    mockLogin.mockReset().mockResolvedValue(undefined);
+    mockLoginWithMagicLink.mockReset().mockResolvedValue(undefined);
+    (authAPI.getCountryCodes as jest.Mock).mockResolvedValue([{ country_code: '+91', country_name: 'India' }]);
+    (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', full_name: 'Pradeep' });
+    (usersAPI.getUsers as jest.Mock).mockResolvedValue([
+      {
+        id: 2,
+        email: 'manager@mykolipannai.com',
+        phone: '+919876543210',
+        full_name: 'Ramesh Manager',
+        is_active: true,
+        role: 'MANAGER',
+        is_owner: false,
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+      },
+    ]);
+    (usersAPI.getInvitations as jest.Mock).mockResolvedValue([]);
+    (usersAPI.inviteUser as jest.Mock).mockResolvedValue({
+      success: true,
+      message: 'Invitation created',
+      data: {
+        invitation_id: 55,
+        token: 'magic_tok_abc123',
+        magic_login_link: 'https://mykolipannai.com/login?magic_token=magic_tok_abc123',
+      },
+    });
+    (usersAPI.generateMagicLink as jest.Mock).mockResolvedValue({
+      invitation_id: 56,
+      token: 'member_tok_xyz789',
+      magic_login_link: 'https://mykolipannai.com/login?magic_token=member_tok_xyz789',
+      phone: '+919876543210',
+      email: 'manager@mykolipannai.com',
+      expires_at: '2026-11-15T00:00:00Z',
+    });
+    (henBatchesAPI.getHenBatches as jest.Mock).mockResolvedValue([
+      {
+        id: 10,
+        tenant_id: '8d7939f7-b716-4eb0-98d4-544c18c8dfb8',
+        batch_name: 'Batch-A (Layer)',
+        initial_count: 22000,
+        current_count: 20850,
+        age_weeks: 38,
+        age_days: 2,
+        date_added: '2026-01-10',
+        created_at: '2026-01-10T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+      },
+    ]);
+    (henBatchesAPI.getSalesHistory as jest.Mock).mockResolvedValue([]);
+  });
+
+  test('LoginPage supports Phone + Password login and auto-consumes ?magic_token= from WhatsApp link', async () => {
+    window.history.pushState({}, '', '/login?magic_token=wa_magic_999');
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockLoginWithMagicLink).toHaveBeenCalledWith('wa_magic_999', true);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    // Also test Phone + Password form submission
+    window.history.pushState({}, '', '/login');
+    fireEvent.change(screen.getByPlaceholderText('9876543210'), { target: { value: '9876543210' } });
+    fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'FarmSecret123' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign In$/i }));
+
+    await waitFor(() => {
+      expect(mockLogin).toHaveBeenCalledWith('+919876543210', 'FarmSecret123', true);
+    });
+  });
+
+  test('UserManagementPage generates WhatsApp Magic Login Link for invited and existing team members', async () => {
+    render(
+      <LanguageProvider>
+        <UserManagementPage />
+      </LanguageProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Ramesh Manager')).toBeInTheDocument();
+    });
+
+    // Click "📲 Send WhatsApp Login Link" for existing member
+    fireEvent.click(screen.getByText(/Send WhatsApp Login Link/i));
+
+    await waitFor(() => {
+      expect(usersAPI.generateMagicLink).toHaveBeenCalledWith(2);
+      expect(screen.getByText(/https:\/\/mykolipannai\.com\/login\?magic_token=member_tok_xyz789/i)).toBeInTheDocument();
+    });
+  });
+
+  test('HenBatchesPage renders flock batches, head counts, and localizes in Tamil', async () => {
+    render(
+      <LanguageProvider>
+        <HenBatchesPage />
+      </LanguageProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Batch-A (Layer)')).toBeInTheDocument();
+      expect(screen.getAllByText(/20,850/).length).toBeGreaterThan(0);
     });
   });
 });

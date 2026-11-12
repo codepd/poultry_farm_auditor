@@ -16,8 +16,12 @@ echo "[2/3] Running Frontend React / Jest Automated QA Suites..."
 CI=true npm --prefix "$ROOT_DIR/react_frontend" test -- --watchAll=false --ci
 
 echo ""
-echo "[3/3] Verifying Frontend Production Bundle Compilation..."
+echo "[3/4] Verifying Frontend Production Bundle Compilation..."
 npm --prefix "$ROOT_DIR/react_frontend" run build
+
+echo ""
+echo "[4/4] Running End-to-End Live Functional API Checks (if local server is active)..."
+python3 "$ROOT_DIR/scripts/run-functional-e2e-tests.py"
 
 echo ""
 echo "=================================================================="
