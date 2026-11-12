@@ -1405,6 +1405,10 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	if layerFeedAmount == 0 && rearingFeedAmount == 0 && totalFeedPrice > 0 {
 		layerFeedAmount = totalFeedPrice
 		layerFeedKg = feedPurchasedKg
+	} else if otherFeedAmount > 0 || otherFeedKg > 0 {
+		// Unclassified feed purchases (e.g., Shell Grit or custom feed items) belong to laying flock operations
+		layerFeedAmount += otherFeedAmount
+		layerFeedKg += otherFeedKg
 	}
 
 	var medicineBreakdownFinal []map[string]interface{}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { AppLanguage, translations, translateItemName, translateStageTag } from '../locales/translations';
 import { useAuth } from './AuthContext';
 import { usersAPI } from '../services/api';
@@ -23,6 +23,7 @@ function normalizeLang(val?: string | null): AppLanguage {
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, updateUser } = useAuth();
+  const manualOverrideRef = useRef(false);
   const [language, setLanguageState] = useState<AppLanguage>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === 'ta' || saved === 'en') return saved;
@@ -36,7 +37,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    if (user.preferred_language === 'ta' || user.preferred_language === 'en') {
+    if (!manualOverrideRef.current && (user.preferred_language === 'ta' || user.preferred_language === 'en')) {
       setLanguageState(user.preferred_language);
       localStorage.setItem(STORAGE_KEY, user.preferred_language);
     }
@@ -46,7 +47,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
     usersAPI
       .getProfile()
       .then((profile) => {
-        if (cancelled || !profile) return;
+        if (cancelled || !profile || manualOverrideRef.current) return;
         const serverLang = normalizeLang(profile.preferred_language);
         setLanguageState(serverLang);
         localStorage.setItem(STORAGE_KEY, serverLang);
@@ -74,6 +75,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const setLanguage = useCallback(
     async (lang: AppLanguage) => {
+      manualOverrideRef.current = true;
       setLanguageState(lang);
       localStorage.setItem(STORAGE_KEY, lang);
       if (isAuthenticated) {

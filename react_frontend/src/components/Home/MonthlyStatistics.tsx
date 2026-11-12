@@ -200,50 +200,68 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
     const periodLabel = formatMonthYear(year, month);
     const tenantName = currentTenant?.name || 'MyKoliPannai';
     const avgEggPrice = data.egg_selling_price_per_egg ?? (data.total_eggs_sold > 0 ? calcDetails.eggRev / data.total_eggs_sold : 0);
-    const netPerEgg = data.net_profit_per_egg ?? (data.total_eggs_sold > 0 ? calcDetails.profit / data.total_eggs_sold : 0);
+    // Always compute Net Profit / Egg from the active preset's dynamic profit (calcDetails.profit)
+    // so it matches the displayed Net Profit and is identical across English & Tamil views
+    const netPerEgg = data.total_eggs_sold > 0 ? calcDetails.profit / data.total_eggs_sold : 0;
+    const presetTitle =
+      activePreset === 'flock'
+        ? t('stats.profitFlock')
+        : activePreset === 'ledger'
+        ? t('stats.profitLedger')
+        : activePreset === 'comprehensive'
+        ? t('stats.profitComprehensive')
+        : t('stats.profitCustom');
 
     if (language === 'ta') {
       return [
-        `🐔 *${tenantName} - மாதாந்திர கணக்கு (${periodLabel})*`,
+        `[கோழி] *${tenantName} - மாதாந்திர கணக்கு (${periodLabel})*`,
+        `*${presetTitle}*`,
         `━━━━━━━━━━━━━━━━━━━━`,
-        `🥚 *விற்ற முட்டைகள்:* ${formatNumber(data.total_eggs_sold)} (₹${avgEggPrice.toFixed(2)}/முட்டை)`,
-        `💰 *முட்டை வருவாய்:* ${formatCurrency(calcDetails.eggRev)}`,
-        calcDetails.discounts > 0 ? `🎁 *தீவன தள்ளுபடி:* +${formatCurrency(calcDetails.discounts)}` : null,
-        calcDetails.henSales > 0 ? `🐓 *கழிவுக் கோழி விற்பனை:* +${formatCurrency(calcDetails.henSales)}` : null,
-        `🌾 *மொத்த தீவனம்:* ${formatNumber(data.feed_purchased_tonne)} டன் (${formatCurrency(calcDetails.totalFeedCost)})`,
-        `  • முட்டை தீவனம்: ${formatNumber(data.layer_feed_tonne ?? 0)} T (${formatCurrency(calcDetails.layerFeedCost)})`,
+        `• *விற்ற முட்டைகள்:* ${formatNumber(data.total_eggs_sold)} (₹${avgEggPrice.toFixed(2)}/முட்டை)`,
+        `• *முட்டை வருவாய்:* ${formatCurrency(calcDetails.eggRev)}`,
+        includeDiscounts && calcDetails.discounts > 0 ? `• *தீவன தள்ளுபடி:* +${formatCurrency(calcDetails.discounts)}` : null,
+        includeHenSales && calcDetails.henSales > 0 ? `• *கழிவுக் கோழி விற்பனை:* +${formatCurrency(calcDetails.henSales)}` : null,
+        `• *மொத்த தீவனம்:* ${formatNumber(data.feed_purchased_tonne)} டன் (${formatCurrency(calcDetails.totalFeedCost)})`,
+        `  - முட்டை தீவனம்: ${formatNumber(data.layer_feed_tonne ?? 0)} T (${formatCurrency(calcDetails.layerFeedCost)})`,
         (data.rearing_feed_tonne || 0) > 0
-          ? `  • வளர்ப்பு தீவனம்: ${formatNumber(data.rearing_feed_tonne)} T (${formatCurrency(calcDetails.rearingFeedCost)})`
+          ? `  - வளர்ப்பு தீவனம்: ${formatNumber(data.rearing_feed_tonne)} T (${formatCurrency(calcDetails.rearingFeedCost)})${!includeRearingFeed ? ' [கணக்கில் நீக்கப்பட்டது]' : ''}`
           : null,
-        `💉 *மருந்து செலவு:* ${formatCurrency(calcDetails.meds)}`,
-        `⚡ *பண்ணை செலவுகள் (சம்பளம்/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`,
+        `• *மருந்து செலவு:* ${formatCurrency(calcDetails.meds)}`,
+        includeOverheads && calcDetails.overheads > 0
+          ? `• *பண்ணை செலவுகள் (சம்பளம்/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`
+          : null,
+        includeTds && calcDetails.tds > 0 ? `• *TDS:* ${formatCurrency(calcDetails.tds)}` : null,
         `━━━━━━━━━━━━━━━━━━━━`,
-        `📈 *முட்டை உற்பத்தி %:* ${formatNumber(data.egg_percentage)}% (${formatNumber(data.estimated_hens || data.actual_head_count)} கோழிகள்)`,
-        `📐 *நிகர லாபம் / முட்டை:* ₹${netPerEgg.toFixed(2)}`,
-        `✅ *நிகர லாபம்:* *${formatCurrency(calcDetails.profit)}* (${calcDetails.margin.toFixed(1)}%)`,
+        `• *முட்டை உற்பத்தி %:* ${formatNumber(data.egg_percentage)}% (${formatNumber(data.estimated_hens || data.actual_head_count)} கோழிகள்)`,
+        `• *நிகர லாபம் / முட்டை:* ₹${netPerEgg.toFixed(2)}`,
+        `✓ *நிகர லாபம்:* *${formatCurrency(calcDetails.profit)}* (${calcDetails.margin.toFixed(1)}%)`,
       ]
         .filter(Boolean)
         .join('\n');
     }
 
     return [
-      `🐔 *${tenantName} - Monthly Report (${periodLabel})*`,
+      `[Farm] *${tenantName} - Monthly Report (${periodLabel})*`,
+      `*${presetTitle}*`,
       `━━━━━━━━━━━━━━━━━━━━`,
-      `🥚 *Eggs Sold:* ${formatNumber(data.total_eggs_sold)} Nos (₹${avgEggPrice.toFixed(2)}/egg)`,
-      `💰 *Egg Revenue:* ${formatCurrency(calcDetails.eggRev)}`,
-      calcDetails.discounts > 0 ? `🎁 *Feed Discounts:* +${formatCurrency(calcDetails.discounts)}` : null,
-      calcDetails.henSales > 0 ? `🐓 *Cull Hen Sales:* +${formatCurrency(calcDetails.henSales)}` : null,
-      `🌾 *Total Feed:* ${formatNumber(data.feed_purchased_tonne)} T (${formatCurrency(calcDetails.totalFeedCost)})`,
-      `  • Layer Feed: ${formatNumber(data.layer_feed_tonne ?? 0)} T (${formatCurrency(calcDetails.layerFeedCost)})`,
+      `• *Eggs Sold:* ${formatNumber(data.total_eggs_sold)} Nos (₹${avgEggPrice.toFixed(2)}/egg)`,
+      `• *Egg Revenue:* ${formatCurrency(calcDetails.eggRev)}`,
+      includeDiscounts && calcDetails.discounts > 0 ? `• *Feed Discounts:* +${formatCurrency(calcDetails.discounts)}` : null,
+      includeHenSales && calcDetails.henSales > 0 ? `• *Cull Hen Sales:* +${formatCurrency(calcDetails.henSales)}` : null,
+      `• *Total Feed:* ${formatNumber(data.feed_purchased_tonne)} T (${formatCurrency(calcDetails.totalFeedCost)})`,
+      `  - Layer Feed: ${formatNumber(data.layer_feed_tonne ?? 0)} T (${formatCurrency(calcDetails.layerFeedCost)})`,
       (data.rearing_feed_tonne || 0) > 0
-        ? `  • Rearing Feed: ${formatNumber(data.rearing_feed_tonne)} T (${formatCurrency(calcDetails.rearingFeedCost)})`
+        ? `  - Rearing Feed: ${formatNumber(data.rearing_feed_tonne)} T (${formatCurrency(calcDetails.rearingFeedCost)})${!includeRearingFeed ? ' [Excluded from Profit]' : ''}`
         : null,
-      `💉 *Medicines:* ${formatCurrency(calcDetails.meds)}`,
-      `⚡ *Farm Overheads (Labor/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`,
+      `• *Medicines:* ${formatCurrency(calcDetails.meds)}`,
+      includeOverheads && calcDetails.overheads > 0
+        ? `• *Farm Overheads (Labor/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`
+        : null,
+      includeTds && calcDetails.tds > 0 ? `• *TDS:* ${formatCurrency(calcDetails.tds)}` : null,
       `━━━━━━━━━━━━━━━━━━━━`,
-      `📈 *Laying %:* ${formatNumber(data.egg_percentage)}% (${formatNumber(data.estimated_hens || data.actual_head_count)} hens)`,
-      `📐 *Net Profit / Egg:* ₹${netPerEgg.toFixed(2)}`,
-      `✅ *Net Profit:* *${formatCurrency(calcDetails.profit)}* (${calcDetails.margin.toFixed(1)}%)`,
+      `• *Laying %:* ${formatNumber(data.egg_percentage)}% (${formatNumber(data.estimated_hens || data.actual_head_count)} hens)`,
+      `• *Net Profit / Egg:* ₹${netPerEgg.toFixed(2)}`,
+      `✓ *Net Profit:* *${formatCurrency(calcDetails.profit)}* (${calcDetails.margin.toFixed(1)}%)`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -487,13 +505,13 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
             <div className="ue-item">
               <span className="ue-label">{t('stats.avgSellingPricePerEgg')}</span>
               <span className="ue-val">
-                ₹{(data.egg_selling_price_per_egg ?? calcDetails.eggRev / data.total_eggs_sold).toFixed(2)}
+                ₹{(calcDetails.eggRev / data.total_eggs_sold).toFixed(2)}
               </span>
             </div>
             <div className="ue-item">
               <span className="ue-label">{t('stats.layerFeedCostPerEgg')}</span>
               <span className="ue-val">
-                ₹{(data.layer_feed_cost_per_egg ?? calcDetails.layerFeedCost / data.total_eggs_sold).toFixed(2)}
+                ₹{(calcDetails.layerFeedCost / data.total_eggs_sold).toFixed(2)}
               </span>
             </div>
             <div className="ue-item">
