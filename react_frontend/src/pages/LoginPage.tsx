@@ -5,11 +5,11 @@ import { authAPI, CountryCodeInfo } from '../services/api';
 import './LoginPage.css';
 
 type LoginMode = 'email' | 'phone';
-type PhoneStep = 'enter-phone' | 'enter-otp';
+type PhoneStep = 'phone-password' | 'enter-phone' | 'enter-otp';
 
 const LoginPage: React.FC = () => {
   const [mode, setMode] = useState<LoginMode>('phone');
-  const { login, loginWithOTP } = useAuth();
+  const { login, loginWithOTP, loginWithMagicLink } = useAuth();
   const navigate = useNavigate();
 
   // Email login state
@@ -17,16 +17,37 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
 
   // Phone login state
-  const [phoneStep, setPhoneStep] = useState<PhoneStep>('enter-phone');
+  const [phoneStep, setPhoneStep] = useState<PhoneStep>('phone-password');
   const [countryCodes, setCountryCodes] = useState<CountryCodeInfo[]>([]);
   const [selectedCountryCode, setSelectedCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [phonePassword, setPhonePassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [rememberMe, setRememberMe] = useState(true);
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Automatically process WhatsApp Magic Link token (?magic_token=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const magicToken = params.get('magic_token');
+    if (!magicToken) return;
+
+    setLoading(true);
+    setError('');
+    loginWithMagicLink(magicToken, true)
+      .then(() => {
+        navigate('/');
+      })
+      .catch((err: any) => {
+        setError(err.response?.data?.error || 'Invalid or expired WhatsApp Magic Link');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [loginWithMagicLink, navigate]);
 
   useEffect(() => {
     authAPI.getCountryCodes().then(codes => {
@@ -110,10 +131,28 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  const handlePhonePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!phoneNumber.trim() || !phonePassword.trim()) {
+      setError('Please enter your phone number and password');
+      return;
+    }
+    setLoading(true);
+    try {
+      await login(fullPhone, phonePassword, rememberMe);
+      navigate('/');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const switchToPhone = () => {
     setMode('phone');
     setError('');
-    setPhoneStep('enter-phone');
+    setPhoneStep('phone-password');
     setOtpCode('');
   };
 
@@ -192,6 +231,78 @@ const LoginPage: React.FC = () => {
           </form>
         )}
 
+        {mode === 'phone' && phoneStep === 'phone-password' && (
+          <form onSubmit={handlePhonePasswordSubmit}>
+            <div className="form-group">
+              <label>Phone Number</label>
+              <div className="phone-input-row">
+                <select
+                  className="country-code-select"
+                  value={selectedCountryCode}
+                  onChange={(e) => setSelectedCountryCode(e.target.value)}
+                  disabled={loading}
+                  aria-label="Country code"
+                >
+                  {countryCodes.length > 0 ? (
+                    countryCodes.map(cc => (
+                      <option key={cc.country_code} value={cc.country_code}>
+                        {cc.country_code}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="+91">+91</option>
+                      <option value="+1">+1</option>
+                    </>
+                  )}
+                </select>
+                <input
+                  type="tel"
+                  className="phone-number-input"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                  placeholder="9876543210"
+                  disabled={loading}
+                  required
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                value={phonePassword}
+                onChange={(e) => setPhonePassword(e.target.value)}
+                placeholder="Enter your password"
+                disabled={loading}
+                required
+              />
+            </div>
+            <label className="remember-me-row">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Remember me</span>
+            </label>
+            <button type="submit" disabled={loading || !phoneNumber.trim() || !phonePassword.trim()}>
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+            <div className="resend-row">
+              <button
+                type="button"
+                className="resend-link"
+                onClick={() => { setPhoneStep('enter-phone'); setError(''); }}
+                disabled={loading}
+              >
+                Use 6-Digit OTP instead
+              </button>
+            </div>
+          </form>
+        )}
+
         {mode === 'phone' && phoneStep === 'enter-phone' && (
           <form onSubmit={handleSendOTP}>
             <div className="form-group">
@@ -231,6 +342,16 @@ const LoginPage: React.FC = () => {
             <button type="submit" disabled={loading || !phoneNumber.trim()}>
               {loading ? 'Sending OTP...' : 'Send OTP'}
             </button>
+            <div className="resend-row">
+              <button
+                type="button"
+                className="resend-link"
+                onClick={() => { setPhoneStep('phone-password'); setError(''); }}
+                disabled={loading}
+              >
+                Sign in with Phone + Password
+              </button>
+            </div>
           </form>
         )}
 

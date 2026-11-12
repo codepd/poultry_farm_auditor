@@ -5,8 +5,9 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Header from './components/Layout/Header';
 import Navbar from './components/Layout/Navbar';
 import MonthlyStatistics from './components/Home/MonthlyStatistics';
+import DailyQuickLogModal from './components/Home/DailyQuickLogModal';
 import DataUploadPage from './pages/DataUploadPage';
-import { analyticsAPI, usersAPI, adminAPI } from './services/api';
+import { analyticsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI } from './services/api';
 
 const mockNavigate = jest.fn();
 jest.mock(
@@ -24,6 +25,7 @@ jest.mock(
 );
 
 let mockCurrentRole = 'OWNER';
+let mockMustSetPassword = false;
 const mockUpdateUser = jest.fn();
 
 // Mock AuthContext so components render with configurable role
@@ -35,6 +37,7 @@ jest.mock('./context/AuthContext', () => ({
       email: 'pradeep@mykolipannai.com',
       full_name: 'Pradeep',
       preferred_language: 'en',
+      must_set_password: mockMustSetPassword,
       tenants: [{ tenant_id: '8d7939f7-b716-4eb0-98d4-544c18c8dfb8', name: 'Pradeep Farm', role: mockCurrentRole }],
     },
     currentTenant: {
@@ -63,6 +66,13 @@ jest.mock('./services/api', () => ({
     uploadLedger: jest.fn(),
     getUploadStatus: jest.fn(),
     commitUpload: jest.fn(),
+  },
+  transactionsAPI: {
+    createTransaction: jest.fn(),
+  },
+  henBatchesAPI: {
+    getHenBatches: jest.fn(),
+    createMortality: jest.fn(),
   },
 }));
 
@@ -306,9 +316,15 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
 describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vault Search', () => {
   beforeEach(() => {
     mockCurrentRole = 'OWNER';
+    mockMustSetPassword = false;
     localStorage.clear();
     (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', full_name: 'Pradeep' });
     (usersAPI.updateProfile as jest.Mock).mockResolvedValue({ preferred_language: 'ta' });
+    (usersAPI.changePassword as jest.Mock).mockResolvedValue({ success: true, message: 'Password updated' });
+    (transactionsAPI.createTransaction as jest.Mock).mockResolvedValue({ id: 999 });
+    (henBatchesAPI.getHenBatches as jest.Mock).mockResolvedValue([
+      { id: 1, batch_name: 'Batch 1', current_count: 15000 },
+    ]);
     (adminAPI.listUploads as jest.Mock).mockResolvedValue([
       {
         id: 101,
@@ -402,5 +418,62 @@ describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vaul
 
     expect(screen.getByText('SEP_2026_SAKTHI.pdf')).toBeInTheDocument();
     expect(screen.queryByText('FEED_RATE_CARD_2025.jpg')).not.toBeInTheDocument();
+  });
+
+  test('Header enforces Mandatory Password Setup modal when user logs in via WhatsApp Magic Link (must_set_password=true)', async () => {
+    mockMustSetPassword = true;
+    render(
+      <LanguageProvider>
+        <Header />
+      </LanguageProvider>
+    );
+
+    expect(screen.getByTestId('mandatory-password-modal')).toBeInTheDocument();
+    expect(screen.getByText(/Set Your Password to Continue/i)).toBeInTheDocument();
+
+    const newPassInput = screen.getByPlaceholderText('Minimum 6 characters');
+    const confirmInput = screen.getByPlaceholderText('Re-enter password');
+    fireEvent.change(newPassInput, { target: { value: 'KoliPass2026!' } });
+    fireEvent.change(confirmInput, { target: { value: 'KoliPass2026!' } });
+
+    fireEvent.click(screen.getByText(/Save Password & Continue/i));
+
+    await waitFor(() => {
+      expect(usersAPI.changePassword).toHaveBeenCalledWith({
+        new_password: 'KoliPass2026!',
+        logout_other_devices: false,
+      });
+      expect(mockUpdateUser).toHaveBeenCalledWith(
+        expect.objectContaining({ must_set_password: false })
+      );
+    });
+  });
+
+  test('DailyQuickLogModal records daily egg sale and dispatches transactionsUpdated', async () => {
+    const onClose = jest.fn();
+    render(
+      <LanguageProvider>
+        <DailyQuickLogModal onClose={onClose} />
+      </LanguageProvider>
+    );
+
+    expect(screen.getByTestId('daily-quick-log-modal')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('e.g. 25200'), { target: { value: '10000' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. 5.45'), { target: { value: '5.50' } });
+
+    fireEvent.click(screen.getByText(/Save Entry/i));
+
+    await waitFor(() => {
+      expect(transactionsAPI.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction_type: 'SALE',
+          category: 'EGG',
+          item_name: 'LARGE EGG',
+          quantity: 10000,
+          rate: 5.5,
+          amount: 55000,
+        })
+      );
+    });
   });
 });

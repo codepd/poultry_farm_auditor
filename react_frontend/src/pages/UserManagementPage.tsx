@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usersAPI, TenantUser, InvitationInfo, InviteRequest, CountryCodeInfo, authAPI } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 import './UserManagementPage.css';
 
 const ROLES = [
@@ -11,11 +12,18 @@ const ROLES = [
 ];
 
 const UserManagementPage: React.FC = () => {
+  const { t } = useLanguage();
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [invitations, setInvitations] = useState<InvitationInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [activeMagicLink, setActiveMagicLink] = useState<{
+    link: string;
+    recipient: string;
+    phone?: string;
+  } | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Invite form state
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -68,6 +76,18 @@ const UserManagementPage: React.FC = () => {
       }
 
       const result = await usersAPI.inviteUser(data);
+      const token = result.data?.token;
+      const magicLink =
+        result.data?.magic_login_link ||
+        (token ? `${window.location.origin}/login?magic_token=${token}` : '');
+      const recipient = data.phone || data.email || '';
+      if (magicLink) {
+        setActiveMagicLink({
+          link: magicLink,
+          recipient,
+          phone: data.phone,
+        });
+      }
       setSuccessMsg(result.message || 'Invitation created');
       setInviteEmail('');
       setInvitePhone('');
@@ -78,6 +98,41 @@ const UserManagementPage: React.FC = () => {
       setError(err.response?.data?.error || 'Failed to send invitation');
     } finally {
       setInviting(false);
+    }
+  };
+
+  const handleGenerateMemberMagicLink = async (u: TenantUser) => {
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await usersAPI.generateMagicLink(u.id);
+      const link = res.magic_login_link || `${window.location.origin}/login?magic_token=${res.token}`;
+      setActiveMagicLink({
+        link,
+        recipient: u.full_name || u.phone || u.email,
+        phone: u.phone,
+      });
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate magic link');
+    }
+  };
+
+  const handleOpenWhatsAppMagicLink = (link: string, phone?: string) => {
+    const msg = `Vanakkam! Click this secure one-time link to sign in to MyKoliPannai and set your password:\n${link}`;
+    const digits = (phone || '').replace(/\D/g, '');
+    const waUrl = digits
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyMagicLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      // ignore
     }
   };
 
@@ -115,6 +170,34 @@ const UserManagementPage: React.FC = () => {
 
       {error && <div className="msg msg-error">{error}</div>}
       {successMsg && <div className="msg msg-success">{successMsg}</div>}
+
+      {activeMagicLink && (
+        <div className="invite-form-card" style={{ borderLeft: '4px solid #16a34a', marginBottom: '1.25rem' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '0.35rem', color: '#15803d' }}>
+            {t('team.magicLinkReady')} ({activeMagicLink.recipient})
+          </h3>
+          <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.86rem', color: '#475569', wordBreak: 'break-all' }}>
+            {activeMagicLink.link}
+          </p>
+          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="submit-btn"
+              style={{ background: '#16a34a' }}
+              onClick={() => handleOpenWhatsAppMagicLink(activeMagicLink.link, activeMagicLink.phone)}
+            >
+              {t('team.whatsappMagicLink')}
+            </button>
+            <button
+              type="button"
+              className="add-btn"
+              onClick={() => handleCopyMagicLink(activeMagicLink.link)}
+            >
+              {copiedLink ? t('stats.copied') : t('team.copyMagicLink')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showInviteForm && (
         <div className="invite-form-card">
@@ -212,6 +295,14 @@ const UserManagementPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="member-meta">
+                  <button
+                    type="button"
+                    className="add-btn"
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+                    onClick={() => handleGenerateMemberMagicLink(u)}
+                  >
+                    {t('team.whatsappMagicLink')}
+                  </button>
                   <span className={`role-badge role-${u.role.toLowerCase()}`}>{u.role.replace('_', ' ')}</span>
                   {u.is_owner && <span className="owner-badge">Owner</span>}
                 </div>
@@ -236,7 +327,24 @@ const UserManagementPage: React.FC = () => {
                     Expires {new Date(inv.expires_at).toLocaleDateString()}
                   </div>
                 </div>
-                <span className={`role-badge role-${inv.role.toLowerCase()}`}>{inv.role.replace('_', ' ')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {inv.token && (
+                    <button
+                      type="button"
+                      className="add-btn"
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+                      onClick={() =>
+                        handleOpenWhatsAppMagicLink(
+                          `${window.location.origin}/login?magic_token=${inv.token}`,
+                          inv.phone?.Valid ? inv.phone.String : undefined
+                        )
+                      }
+                    >
+                      {t('team.whatsappMagicLink')}
+                    </button>
+                  )}
+                  <span className={`role-badge role-${inv.role.toLowerCase()}`}>{inv.role.replace('_', ' ')}</span>
+                </div>
               </div>
             ))}
           </div>

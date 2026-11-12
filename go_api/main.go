@@ -57,6 +57,7 @@ func main() {
 	apiRouter.HandleFunc("/auth/login", handlers.Login(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/send-otp", handlers.SendOTP(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/verify-otp", handlers.VerifyOTP(cfg)).Methods("POST")
+	apiRouter.HandleFunc("/auth/magic-login", handlers.MagicLinkLogin(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/refresh", handlers.RefreshToken(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/logout", handlers.Logout(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/country-codes", handlers.GetAllCountryCodes).Methods("GET")
@@ -113,6 +114,7 @@ func main() {
 	protectedRouter.HandleFunc("/users/logout-other-devices", handlers.LogoutOtherDevices).Methods("POST")
 	protectedRouter.HandleFunc("/users/invite", handlers.InviteUser).Methods("POST")
 	protectedRouter.HandleFunc("/users/invitations", handlers.GetInvitations).Methods("GET")
+	protectedRouter.HandleFunc("/users/magic-link", handlers.GenerateUserMagicLink).Methods("POST")
 
 	// Public invitation acceptance
 	apiRouter.HandleFunc("/users/accept-invite", handlers.AcceptInvite).Methods("POST")

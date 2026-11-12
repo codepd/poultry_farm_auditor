@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import MultiCategoryEntry from '../components/Home/MultiCategoryEntry';
+import DailyQuickLogModal from '../components/Home/DailyQuickLogModal';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
 import YearlyStatistics from '../components/Home/YearlyStatistics';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
@@ -13,6 +14,7 @@ const HomePage: React.FC = () => {
   const { t, language } = useLanguage();
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
   const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showMobileQuickLog, setShowMobileQuickLog] = useState(false);
   const [showDateRange, setShowDateRange] = useState(false);
 
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
@@ -33,6 +35,16 @@ const HomePage: React.FC = () => {
     <div className="home-page">
       {/* Action shortcuts bar */}
       <div className="home-shortcuts-bar">
+        {canEdit && (
+          <button
+            type="button"
+            className="shortcut-pill active"
+            onClick={() => setShowMobileQuickLog(true)}
+          >
+            {t('quickLog.btn')}
+          </button>
+        )}
+
         {canEdit && (
           <button
             type="button"
@@ -62,6 +74,10 @@ const HomePage: React.FC = () => {
         <div className="collapsible-container">
           <DateRangeSummaryPanel />
         </div>
+      )}
+
+      {canEdit && showMobileQuickLog && (
+        <DailyQuickLogModal onClose={() => setShowMobileQuickLog(false)} />
       )}
 
       <div className="statistics-section">

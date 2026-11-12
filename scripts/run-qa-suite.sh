@@ -9,7 +9,7 @@ echo "=================================================================="
 
 echo ""
 echo "[1/3] Running Backend Go Unit & Regression Tests..."
-go -C "$ROOT_DIR/go_api" test -v ./handlers -run "TestClassifyFeedStage|TestAnalyticsCacheLifecycleAndInvalidation|TestSanitizeFloat|TestSeptember2026ProfitAndPerEggConsistency"
+go -C "$ROOT_DIR/go_api" test -v ./handlers -run "TestClassifyFeedStage|TestAnalyticsCacheLifecycleAndInvalidation|TestSanitizeFloat|TestSeptember2026ProfitAndPerEggConsistency|TestOTPVaultEncryptionAndHashing"
 
 echo ""
 echo "[2/3] Running Frontend React / Jest Automated QA Suites..."

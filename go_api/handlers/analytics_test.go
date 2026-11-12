@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"math"
+	"poultry-farm-api/config"
+	"strings"
 	"testing"
 )
 
@@ -132,5 +134,53 @@ func TestSeptember2026ProfitAndPerEggConsistency(t *testing.T) {
 	}
 	if math.Abs(farmProfitPerEgg-(-0.0669)) > 0.01 {
 		t.Errorf("farmProfitPerEgg = %.4f, want ~-0.07", farmProfitPerEgg)
+	}
+}
+
+func TestOTPVaultEncryptionAndHashing(t *testing.T) {
+	cfg := &config.Config{
+		OTPEncryptionKey: "unit-test-kms-vault-master-key-2026",
+	}
+
+	rawOTP := "482910"
+	phone := "+919876543210"
+
+	encrypted, keySource, err := EncryptOTP(rawOTP, cfg)
+	if err != nil {
+		t.Fatalf("EncryptOTP failed: %v", err)
+	}
+	if !strings.HasPrefix(encrypted, "enc:v1:") {
+		t.Errorf("expected encrypted OTP to start with enc:v1:, got %s", encrypted)
+	}
+	if strings.Contains(encrypted, rawOTP) {
+		t.Errorf("encrypted OTP %q must never contain raw OTP %q", encrypted, rawOTP)
+	}
+	if keySource != "ENV:OTP_ENCRYPTION_KEY" {
+		t.Errorf("expected keySource ENV:OTP_ENCRYPTION_KEY, got %s", keySource)
+	}
+
+	// Verify round-trip decryption with Vault key
+	decrypted, err := DecryptOTP(encrypted, cfg)
+	if err != nil {
+		t.Fatalf("DecryptOTP failed: %v", err)
+	}
+	if decrypted != rawOTP {
+		t.Errorf("DecryptOTP = %q, want %q", decrypted, rawOTP)
+	}
+
+	// Verify decryption fails with wrong key
+	wrongCfg := &config.Config{OTPEncryptionKey: "wrong-key"}
+	if _, err := DecryptOTP(encrypted, wrongCfg); err == nil {
+		t.Errorf("expected DecryptOTP with wrong key to fail, but succeeded")
+	}
+
+	// Verify deterministic HMAC-SHA256 lookup hash
+	hash1 := HashOTPForLookup(phone, rawOTP, cfg)
+	hash2 := HashOTPForLookup(phone, rawOTP, cfg)
+	if hash1 != hash2 {
+		t.Errorf("expected deterministic HMAC hash, got %s vs %s", hash1, hash2)
+	}
+	if !strings.HasPrefix(hash1, "hmac:v1:") || strings.Contains(hash1, rawOTP) {
+		t.Errorf("invalid OTP HMAC hash: %s", hash1)
 	}
 }

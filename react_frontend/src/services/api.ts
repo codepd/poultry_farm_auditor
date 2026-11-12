@@ -136,7 +136,8 @@ export interface Tenant {
 }
 
 export interface LoginRequest {
-  email: string;
+  email?: string;
+  phone?: string;
   password: string;
   remember_me?: boolean;
 }
@@ -145,8 +146,10 @@ export interface LoginResponse {
   token: string;
   user_id: number;
   email: string;
+  phone?: string;
   full_name: string;
   preferred_language?: 'en' | 'ta' | string;
+  must_set_password?: boolean;
   tenants: TenantInfo[];
 }
 
@@ -339,6 +342,10 @@ export const authAPI = {
   },
   verifyOTP: async (data: VerifyOTPRequest): Promise<LoginResponse> => {
     const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/verify-otp', data);
+    return response.data.data || response.data as any;
+  },
+  loginWithMagicLink: async (data: { token: string; remember_me?: boolean }): Promise<LoginResponse> => {
+    const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/magic-login', data);
     return response.data.data || response.data as any;
   },
   refreshToken: async (): Promise<string> => {
@@ -592,8 +599,12 @@ export const usersAPI = {
     const response = await api.get<{ success: boolean; data: InvitationInfo[] }>('/users/invitations');
     return response.data.data || [];
   },
-  getProfile: async (): Promise<{ user_id: number; email: string; phone: string; full_name: string; preferred_language: string }> => {
-    const response = await api.get<{ success: boolean; data: { user_id: number; email: string; phone: string; full_name: string; preferred_language: string } }>('/users/profile');
+  getProfile: async (): Promise<{ user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean }> => {
+    const response = await api.get<{ success: boolean; data: { user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean } }>('/users/profile');
+    return response.data.data;
+  },
+  generateMagicLink: async (userId: number): Promise<{ invitation_id: number; token: string; magic_login_link: string; phone: string; email: string; expires_at: string }> => {
+    const response = await api.post<{ success: boolean; data: { invitation_id: number; token: string; magic_login_link: string; phone: string; email: string; expires_at: string } }>('/users/magic-link', { user_id: userId });
     return response.data.data;
   },
   updateProfile: async (data: { full_name?: string; preferred_language?: string }) => {

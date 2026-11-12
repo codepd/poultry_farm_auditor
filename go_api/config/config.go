@@ -25,6 +25,9 @@ type Config struct {
 	S3DocumentsBucket     string
 	AWSRegion             string
 	AWSProfile            string
+	OTPEncryptionKey      string
+	OTPSecretID           string // AWS Secrets Manager secret ID/ARN (Vault equivalent)
+	OTPSSMParameter       string // AWS SSM Parameter Store SecureString name (KMS-backed)
 }
 
 func Load() *Config {
@@ -45,6 +48,9 @@ func Load() *Config {
 		S3DocumentsBucket:     getEnv("S3_DOCUMENTS_BUCKET", "kolipannai-dev-documents"),
 		AWSRegion:             getEnv("AWS_REGION", "ap-south-1"),
 		AWSProfile:            getEnv("AWS_PROFILE", "AdminAccess-Pradeep"),
+		OTPEncryptionKey:      getEnv("OTP_ENCRYPTION_KEY", ""),
+		OTPSecretID:           getEnv("OTP_SECRET_ID", "kolipannai/otp-encryption-key"),
+		OTPSSMParameter:       getEnv("OTP_SSM_PARAMETER", "/kolipannai/otp-encryption-key"),
 	}
 }
 
