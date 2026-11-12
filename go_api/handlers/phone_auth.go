@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var phoneRegex = regexp.MustCompile(`^\+\d{1,4}\d{6,14}$`)
@@ -391,11 +392,41 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 
 type MagicLinkLoginRequest struct {
 	Token      string `json:"token"`
+	Phone      string `json:"phone,omitempty"`
+	Email      string `json:"email,omitempty"`
+	Password   string `json:"password,omitempty"`
+	FullName   string `json:"full_name,omitempty"`
 	RememberMe bool   `json:"remember_me"`
 }
 
-// MagicLinkLogin logs a user in immediately using a single-use WhatsApp Magic Link token
-// and sets MustSetPassword = true so the user is forced to set a password right away.
+func normalizeDigitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// phonesMatch compares the invited phone (+919876543210) against the user-entered phone (+919876543210 or 9876543210).
+func phonesMatch(invitedPhone, enteredPhone string) bool {
+	invDigits := normalizeDigitsOnly(invitedPhone)
+	entDigits := normalizeDigitsOnly(enteredPhone)
+	if invDigits == "" || entDigits == "" || len(entDigits) < 7 {
+		return false
+	}
+	if invDigits == entDigits {
+		return true
+	}
+	if len(invDigits) >= 10 && len(entDigits) >= 10 {
+		return invDigits[len(invDigits)-10:] == entDigits[len(entDigits)-10:]
+	}
+	return false
+}
+
+// MagicLinkLogin validates a single-use, HMAC-signed WhatsApp Magic Link token,
+// verifies the recipient's phone/email, sets their password/PIN, and burns the token atomically.
 func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req MagicLinkLoginRequest
@@ -410,6 +441,13 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		tx, err := database.DB.Begin()
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Database error")
+			return
+		}
+		defer tx.Rollback()
+
 		var inviteID int
 		var tenantID uuid.UUID
 		var invEmail sql.NullString
@@ -418,10 +456,11 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 		var expiresAt time.Time
 		var acceptedAt sql.NullTime
 
-		err := database.DB.QueryRow(`
+		err = tx.QueryRow(`
 			SELECT id, tenant_id, email, phone, role, expires_at, accepted_at
 			FROM invitations
 			WHERE token = $1
+			FOR UPDATE
 		`, token).Scan(&inviteID, &tenantID, &invEmail, &invPhone, &role, &expiresAt, &acceptedAt)
 
 		if err == sql.ErrNoRows {
@@ -434,7 +473,7 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 		}
 
 		if acceptedAt.Valid {
-			respondWithError(w, http.StatusBadRequest, "This WhatsApp Magic Link has already been used. Please log in with your password.")
+			respondWithError(w, http.StatusBadRequest, "This WhatsApp Magic Link has already been used and cannot be replayed. Please log in with your password.")
 			return
 		}
 
@@ -452,6 +491,49 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 			phoneVal = strings.TrimSpace(invPhone.String)
 		}
 
+		recipientTarget := phoneVal
+		if recipientTarget == "" {
+			recipientTarget = emailVal
+		}
+
+		// Verify cryptographic HMAC signature to ensure the link was issued by our server
+		if !VerifySignedMagicToken(token, recipientTarget, cfg) {
+			respondWithError(w, http.StatusUnauthorized, "Invalid magic link signature")
+			return
+		}
+
+		// Verify recipient phone/email match when the invitation is bound to a phone or email
+		enteredPhone := strings.TrimSpace(req.Phone)
+		enteredEmail := strings.TrimSpace(req.Email)
+		if phoneVal != "" {
+			if enteredPhone == "" || !phonesMatch(phoneVal, enteredPhone) {
+				respondWithError(w, http.StatusUnauthorized, "Entered phone number does not match this invitation link")
+				return
+			}
+		} else if emailVal != "" && enteredEmail != "" {
+			if !strings.EqualFold(emailVal, enteredEmail) {
+				respondWithError(w, http.StatusUnauthorized, "Entered email does not match this invitation link")
+				return
+			}
+		}
+
+		newPassword := strings.TrimSpace(req.Password)
+		var passwordHashStr string
+		mustSetPassword := true
+		if newPassword != "" {
+			if len(newPassword) < 6 {
+				respondWithError(w, http.StatusBadRequest, "Password/PIN must be at least 6 characters")
+				return
+			}
+			hashedBytes, hashErr := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+			if hashErr != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+				return
+			}
+			passwordHashStr = string(hashedBytes)
+			mustSetPassword = false
+		}
+
 		var userID int
 		var dbEmail sql.NullString
 		var dbPhone sql.NullString
@@ -459,12 +541,12 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 		var preferredLanguage string
 
 		if phoneVal != "" {
-			err = database.DB.QueryRow(`
+			err = tx.QueryRow(`
 				SELECT id, email, phone, full_name, COALESCE(preferred_language, 'en')
 				FROM users WHERE phone = $1
 			`, phoneVal).Scan(&userID, &dbEmail, &dbPhone, &fullName, &preferredLanguage)
 		} else if emailVal != "" {
-			err = database.DB.QueryRow(`
+			err = tx.QueryRow(`
 				SELECT id, email, phone, full_name, COALESCE(preferred_language, 'en')
 				FROM users WHERE email = $1
 			`, emailVal).Scan(&userID, &dbEmail, &dbPhone, &fullName, &preferredLanguage)
@@ -473,12 +555,14 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		enteredFullName := strings.TrimSpace(req.FullName)
+
 		if err == sql.ErrNoRows {
-			err = database.DB.QueryRow(`
-				INSERT INTO users (email, phone, is_active, must_set_password)
-				VALUES (NULLIF($1, ''), NULLIF($2, ''), TRUE, TRUE)
+			err = tx.QueryRow(`
+				INSERT INTO users (email, phone, password_hash, full_name, is_active, must_set_password)
+				VALUES (NULLIF($1, ''), NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), TRUE, $5)
 				RETURNING id
-			`, emailVal, phoneVal).Scan(&userID)
+			`, emailVal, phoneVal, passwordHashStr, enteredFullName, mustSetPassword).Scan(&userID)
 			if err != nil {
 				respondWithError(w, http.StatusInternalServerError, "Failed to create user account")
 				return
@@ -488,12 +572,32 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 			respondWithError(w, http.StatusInternalServerError, "Database error")
 			return
 		} else {
-			_, _ = database.DB.Exec(`
-				UPDATE users SET is_active = TRUE, must_set_password = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1
-			`, userID)
+			if passwordHashStr != "" {
+				_, err = tx.Exec(`
+					UPDATE users
+					SET password_hash = $1,
+					    full_name = COALESCE(NULLIF($2, ''), full_name),
+					    is_active = TRUE,
+					    must_set_password = FALSE,
+					    updated_at = CURRENT_TIMESTAMP
+					WHERE id = $3
+				`, passwordHashStr, enteredFullName, userID)
+			} else {
+				_, err = tx.Exec(`
+					UPDATE users
+					SET is_active = TRUE,
+					    must_set_password = TRUE,
+					    updated_at = CURRENT_TIMESTAMP
+					WHERE id = $1
+				`, userID)
+			}
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to update user account")
+				return
+			}
 		}
 
-		_, err = database.DB.Exec(`
+		_, err = tx.Exec(`
 			INSERT INTO tenant_users (tenant_id, user_id, role, is_owner)
 			VALUES ($1, $2, $3, FALSE)
 			ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = $3, updated_at = CURRENT_TIMESTAMP
@@ -503,7 +607,17 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		_, _ = database.DB.Exec(`UPDATE invitations SET accepted_at = NOW() WHERE id = $1`, inviteID)
+		// Burn the one-time magic link inside the same transaction so it can never be replayed
+		_, err = tx.Exec(`UPDATE invitations SET accepted_at = NOW() WHERE id = $1`, inviteID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to finalize invitation")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to commit magic login")
+			return
+		}
 
 		// Fetch user's tenants
 		rows, err := database.DB.Query(`
@@ -540,8 +654,8 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 		if dbPhone.Valid && dbPhone.String != "" {
 			phoneStr = dbPhone.String
 		}
-		fullNameStr := ""
-		if fullName.Valid {
+		fullNameStr := enteredFullName
+		if fullNameStr == "" && fullName.Valid {
 			fullNameStr = fullName.String
 		}
 
@@ -580,7 +694,7 @@ func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
 				Phone:             phoneStr,
 				FullName:          fullNameStr,
 				PreferredLanguage: preferredLanguage,
-				MustSetPassword:   true,
+				MustSetPassword:   mustSetPassword,
 				Tenants:           tenants,
 			},
 		})

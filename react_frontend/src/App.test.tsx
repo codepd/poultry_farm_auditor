@@ -580,17 +580,34 @@ describe('QA Suite 4: End-to-End Functional Workflows (Login, Team Magic Link, H
     (henBatchesAPI.getSalesHistory as jest.Mock).mockResolvedValue([]);
   });
 
-  test('LoginPage supports Phone + Password login and auto-consumes ?magic_token= from WhatsApp link', async () => {
+  test('LoginPage requires phone verification + password setup for ?magic_token= and supports Phone + Password login', async () => {
     window.history.pushState({}, '', '/login?magic_token=wa_magic_999');
-    render(<LoginPage />);
+    const { unmount } = render(<LoginPage />);
+
+    // Must NOT auto-consume on page load (protects against WhatsApp link preview bots)
+    expect(mockLoginWithMagicLink).not.toHaveBeenCalled();
+    expect(screen.getByTestId('magic-link-verify-form')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('9876543210'), { target: { value: '9876543210' } });
+    fireEvent.change(screen.getByPlaceholderText('Enter your full name'), { target: { value: 'Ramesh' } });
+    fireEvent.change(screen.getByPlaceholderText('Create a password or 6-digit PIN'), { target: { value: 'Pin123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Confirm your password or PIN'), { target: { value: 'Pin123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /Verify Phone & Set Password/i }));
 
     await waitFor(() => {
-      expect(mockLoginWithMagicLink).toHaveBeenCalledWith('wa_magic_999', true);
+      expect(mockLoginWithMagicLink).toHaveBeenCalledWith('wa_magic_999', true, {
+        phone: '+919876543210',
+        full_name: 'Ramesh',
+        password: 'Pin123456',
+      });
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    // Also test Phone + Password form submission
+    unmount();
+
+    // Also test normal Phone + Password form submission
     window.history.pushState({}, '', '/login');
+    render(<LoginPage />);
     fireEvent.change(screen.getByPlaceholderText('9876543210'), { target: { value: '9876543210' } });
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'FarmSecret123' } });
     fireEvent.click(screen.getByRole('button', { name: /^Sign In$/i }));

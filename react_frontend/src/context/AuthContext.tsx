@@ -6,7 +6,11 @@ interface AuthContextType {
   currentTenant: TenantInfo | null;
   login: (identifier: string, password: string, rememberMe?: boolean) => Promise<void>;
   loginWithOTP: (phone: string, code: string, rememberMe?: boolean) => Promise<void>;
-  loginWithMagicLink: (token: string, rememberMe?: boolean) => Promise<void>;
+  loginWithMagicLink: (
+    token: string,
+    rememberMe?: boolean,
+    verification?: { phone?: string; email?: string; password?: string; full_name?: string }
+  ) => Promise<void>;
   logout: () => void;
   switchTenant: (tenantId: string) => void;
   updateUser: (patch: Partial<LoginResponse>) => void;
@@ -104,8 +108,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     handleLoginResponse(response);
   };
 
-  const loginWithMagicLink = async (token: string, rememberMe = true) => {
-    const response = await authAPI.loginWithMagicLink({ token, remember_me: rememberMe });
+  const loginWithMagicLink = async (
+    token: string,
+    rememberMe = true,
+    verification?: { phone?: string; email?: string; password?: string; full_name?: string }
+  ) => {
+    const response = await authAPI.loginWithMagicLink({
+      token,
+      remember_me: rememberMe,
+      ...(verification || {}),
+    });
     handleLoginResponse(response);
   };
 

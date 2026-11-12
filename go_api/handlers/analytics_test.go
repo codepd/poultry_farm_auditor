@@ -183,4 +183,22 @@ func TestOTPVaultEncryptionAndHashing(t *testing.T) {
 	if !strings.HasPrefix(hash1, "hmac:v1:") || strings.Contains(hash1, rawOTP) {
 		t.Errorf("invalid OTP HMAC hash: %s", hash1)
 	}
+
+	// Verify HMAC-signed WhatsApp Magic Token authenticity & recipient binding
+	signedTok, err := GenerateSignedMagicToken(phone, cfg)
+	if err != nil {
+		t.Fatalf("GenerateSignedMagicToken failed: %v", err)
+	}
+	if !VerifySignedMagicToken(signedTok, phone, cfg) {
+		t.Errorf("VerifySignedMagicToken failed for valid token and matching phone")
+	}
+	if VerifySignedMagicToken(signedTok, "+919999999999", cfg) {
+		t.Errorf("VerifySignedMagicToken must reject token when used with a different phone number")
+	}
+	if VerifySignedMagicToken(signedTok+"tampered", phone, cfg) {
+		t.Errorf("VerifySignedMagicToken must reject tampered signature")
+	}
+	if !phonesMatch("+919876543210", "9876543210") || phonesMatch("+919876543210", "+919111111111") {
+		t.Errorf("phonesMatch failed phone number verification check")
+	}
 }

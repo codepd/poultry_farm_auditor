@@ -200,3 +200,37 @@ func HashOTPForLookup(phone, otp string, cfg *config.Config) string {
 	mac.Write([]byte(strings.TrimSpace(phone) + ":" + strings.TrimSpace(otp)))
 	return "hmac:v1:" + hex.EncodeToString(mac.Sum(nil))
 }
+
+// GenerateSignedMagicToken generates a 256-bit random nonce and appends an HMAC-SHA256
+// signature bound to the recipient (phone or email) using the Vault key.
+// Format: "<64-char-random-hex>.<32-char-hmac-hex>"
+func GenerateSignedMagicToken(recipient string, cfg *config.Config) (string, error) {
+	nonceBytes := make([]byte, 32)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return "", err
+	}
+	nonceHex := hex.EncodeToString(nonceBytes)
+	sigHex := computeMagicTokenSignature(nonceHex, recipient, cfg)
+	return nonceHex + "." + sigHex, nil
+}
+
+// VerifySignedMagicToken verifies that a magic token was signed by our server for the given recipient.
+// Legacy unsigned 64-char hex tokens remain supported only if they match the DB invitation row.
+func VerifySignedMagicToken(token string, recipient string, cfg *config.Config) bool {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 2 {
+		// Legacy unsigned hex token in DB: allow DB lookup + phone verification to validate
+		return len(parts) == 1 && len(parts[0]) >= 16
+	}
+	expectedSig := computeMagicTokenSignature(parts[0], recipient, cfg)
+	return hmac.Equal([]byte(parts[1]), []byte(expectedSig))
+}
+
+func computeMagicTokenSignature(nonceHex string, recipient string, cfg *config.Config) string {
+	key, _ := ResolveOTPEncryptionKey(cfg)
+	mac := hmac.New(sha256.New, key)
+	normalizedRecipient := strings.ToLower(strings.TrimSpace(recipient))
+	mac.Write([]byte("kolipannai-magic-v1:" + nonceHex + ":" + normalizedRecipient))
+	fullSum := hex.EncodeToString(mac.Sum(nil))
+	return fullSum[:32]
+}

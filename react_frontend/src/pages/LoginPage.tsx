@@ -29,25 +29,53 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Automatically process WhatsApp Magic Link token (?magic_token=...)
+  // WhatsApp Magic Link Verification & Password Setup state (?magic_token=...)
+  // Does NOT auto-consume on GET/load (prevents WhatsApp preview bots & link forwarding attacks).
+  const [magicToken, setMagicToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('magic_token');
+  });
+  const [magicFullName, setMagicFullName] = useState('');
+  const [magicNewPassword, setMagicNewPassword] = useState('');
+  const [magicConfirmPassword, setMagicConfirmPassword] = useState('');
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const magicToken = params.get('magic_token');
+    const tok = params.get('magic_token');
+    if (tok) setMagicToken(tok);
+  }, []);
+
+  const handleMagicLinkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
     if (!magicToken) return;
+    if (!phoneNumber.trim()) {
+      setError('Please enter your invited phone number to verify your identity');
+      return;
+    }
+    if (!magicNewPassword.trim() || magicNewPassword.trim().length < 6) {
+      setError('Password / PIN must be at least 6 characters');
+      return;
+    }
+    if (magicNewPassword.trim() !== magicConfirmPassword.trim()) {
+      setError('Passwords do not match');
+      return;
+    }
 
     setLoading(true);
-    setError('');
-    loginWithMagicLink(magicToken, true)
-      .then(() => {
-        navigate('/');
-      })
-      .catch((err: any) => {
-        setError(err.response?.data?.error || 'Invalid or expired WhatsApp Magic Link');
-      })
-      .finally(() => {
-        setLoading(false);
+    try {
+      await loginWithMagicLink(magicToken, rememberMe, {
+        phone: fullPhone,
+        full_name: magicFullName.trim() || undefined,
+        password: magicNewPassword.trim(),
       });
-  }, [loginWithMagicLink, navigate]);
+      navigate('/');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Verification failed. Ensure your phone number matches the invitation.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     authAPI.getCountryCodes().then(codes => {
@@ -171,28 +199,109 @@ const LoginPage: React.FC = () => {
     <div className="login-page">
       <div className="login-container">
         <h1>Poultry Farm</h1>
-        <h2>Sign In</h2>
+        <h2>{magicToken ? 'Verify Phone & Set Password' : 'Sign In'}</h2>
 
-        <div className="login-tabs">
-          <button
-            type="button"
-            className={`login-tab ${mode === 'phone' ? 'active' : ''}`}
-            onClick={switchToPhone}
-          >
-            Phone
-          </button>
-          <button
-            type="button"
-            className={`login-tab ${mode === 'email' ? 'active' : ''}`}
-            onClick={switchToEmail}
-          >
-            Email
-          </button>
-        </div>
+        {!magicToken && (
+          <div className="login-tabs">
+            <button
+              type="button"
+              className={`login-tab ${mode === 'phone' ? 'active' : ''}`}
+              onClick={switchToPhone}
+            >
+              Phone
+            </button>
+            <button
+              type="button"
+              className={`login-tab ${mode === 'email' ? 'active' : ''}`}
+              onClick={switchToEmail}
+            >
+              Email
+            </button>
+          </div>
+        )}
 
         {error && <div className="error-message">{error}</div>}
 
-        {mode === 'email' && (
+        {magicToken && (
+          <form onSubmit={handleMagicLinkSubmit} data-testid="magic-link-verify-form">
+            <p style={{ fontSize: '0.86rem', color: '#475569', marginBottom: '1rem', lineHeight: 1.45 }}>
+              For your security, please verify the phone number this WhatsApp link was sent to and create your password/PIN.
+            </p>
+            <div className="form-group">
+              <label>Verify Your Phone Number</label>
+              <div className="phone-input-row">
+                <select
+                  className="country-code-select"
+                  value={selectedCountryCode}
+                  onChange={(e) => setSelectedCountryCode(e.target.value)}
+                  disabled={loading}
+                  aria-label="Country code"
+                >
+                  {countryCodes.length > 0 ? (
+                    countryCodes.map(cc => (
+                      <option key={cc.country_code} value={cc.country_code}>
+                        {cc.country_code}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="+91">+91</option>
+                      <option value="+1">+1</option>
+                    </>
+                  )}
+                </select>
+                <input
+                  type="tel"
+                  className="phone-number-input"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                  placeholder="9876543210"
+                  disabled={loading}
+                  required
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Your Full Name</label>
+              <input
+                type="text"
+                value={magicFullName}
+                onChange={(e) => setMagicFullName(e.target.value)}
+                placeholder="Enter your full name"
+                disabled={loading}
+              />
+            </div>
+            <div className="form-group">
+              <label>Set Password / PIN (min 6 characters)</label>
+              <input
+                type="password"
+                value={magicNewPassword}
+                onChange={(e) => setMagicNewPassword(e.target.value)}
+                placeholder="Create a password or 6-digit PIN"
+                minLength={6}
+                disabled={loading}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Confirm Password / PIN</label>
+              <input
+                type="password"
+                value={magicConfirmPassword}
+                onChange={(e) => setMagicConfirmPassword(e.target.value)}
+                placeholder="Confirm your password or PIN"
+                minLength={6}
+                disabled={loading}
+                required
+              />
+            </div>
+            <button type="submit" disabled={loading}>
+              {loading ? 'Verifying & Signing in...' : 'Verify Phone & Set Password'}
+            </button>
+          </form>
+        )}
+
+        {!magicToken && mode === 'email' && (
           <form onSubmit={handleEmailSubmit}>
             <div className="form-group">
               <label>Email</label>
@@ -231,7 +340,7 @@ const LoginPage: React.FC = () => {
           </form>
         )}
 
-        {mode === 'phone' && phoneStep === 'phone-password' && (
+        {!magicToken && mode === 'phone' && phoneStep === 'phone-password' && (
           <form onSubmit={handlePhonePasswordSubmit}>
             <div className="form-group">
               <label>Phone Number</label>
@@ -303,7 +412,7 @@ const LoginPage: React.FC = () => {
           </form>
         )}
 
-        {mode === 'phone' && phoneStep === 'enter-phone' && (
+        {!magicToken && mode === 'phone' && phoneStep === 'enter-phone' && (
           <form onSubmit={handleSendOTP}>
             <div className="form-group">
               <label>Phone Number</label>
@@ -355,7 +464,7 @@ const LoginPage: React.FC = () => {
           </form>
         )}
 
-        {mode === 'phone' && phoneStep === 'enter-otp' && (
+        {!magicToken && mode === 'phone' && phoneStep === 'enter-otp' && (
           <form onSubmit={handleVerifyOTP}>
             <div className="otp-sent-info">
               OTP sent to <strong>{fullPhone}</strong>

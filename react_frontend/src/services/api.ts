@@ -344,7 +344,14 @@ export const authAPI = {
     const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/verify-otp', data);
     return response.data.data || response.data as any;
   },
-  loginWithMagicLink: async (data: { token: string; remember_me?: boolean }): Promise<LoginResponse> => {
+  loginWithMagicLink: async (data: {
+    token: string;
+    phone?: string;
+    email?: string;
+    password?: string;
+    full_name?: string;
+    remember_me?: boolean;
+  }): Promise<LoginResponse> => {
     const response = await api.post<{ success: boolean; data: LoginResponse }>('/auth/magic-login', data);
     return response.data.data || response.data as any;
   },

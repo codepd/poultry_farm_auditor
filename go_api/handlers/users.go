@@ -189,10 +189,17 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate invitation token
-	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
-	token := hex.EncodeToString(tokenBytes)
+	// Generate HMAC-signed magic invitation token bound to recipient (phone or email)
+	recipientTarget := phone
+	if recipientTarget == "" {
+		recipientTarget = email
+	}
+	token, err := GenerateSignedMagicToken(recipientTarget, nil)
+	if err != nil {
+		tokenBytes := make([]byte, 32)
+		rand.Read(tokenBytes)
+		token = hex.EncodeToString(tokenBytes)
+	}
 
 	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
 
@@ -286,9 +293,16 @@ func GenerateUserMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
-	token := hex.EncodeToString(tokenBytes)
+	recipientTarget := targetPhone
+	if recipientTarget == "" {
+		recipientTarget = targetEmail
+	}
+	token, err := GenerateSignedMagicToken(recipientTarget, nil)
+	if err != nil {
+		tokenBytes := make([]byte, 32)
+		rand.Read(tokenBytes)
+		token = hex.EncodeToString(tokenBytes)
+	}
 	expiresAt := time.Now().UTC().Add(48 * time.Hour)
 
 	var inviteID int
