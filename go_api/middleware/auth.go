@@ -158,16 +158,7 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 	)
 
 	if err == sql.ErrNoRows {
-		// Return default permissions (no access)
-		return &models.RolePermission{
-			TenantID:              tenantUUID,
-			Role:                  role,
-			CanViewSensitiveData:  false,
-			CanEditTransactions:   false,
-			CanApproveTransactions: false,
-			CanManageUsers:        false,
-			CanViewCharts:         false,
-		}, nil
+		return defaultRolePermissions(tenantUUID, role), nil
 	}
 
 	if err != nil {
@@ -175,6 +166,56 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 	}
 
 	return &perm, nil
+}
+
+func defaultRolePermissions(tenantUUID uuid.UUID, role string) *models.RolePermission {
+	switch role {
+	case "ADMIN", "OWNER", "CO_OWNER":
+		return &models.RolePermission{
+			TenantID:               tenantUUID,
+			Role:                   role,
+			CanViewSensitiveData:   true,
+			CanEditTransactions:    true,
+			CanApproveTransactions: true,
+			CanManageUsers:         true,
+			CanViewCharts:          true,
+		}
+	case "MANAGER":
+		return &models.RolePermission{
+			TenantID:               tenantUUID,
+			Role:                   role,
+			CanViewSensitiveData:   false,
+			CanEditTransactions:    true,
+			CanApproveTransactions: true,
+			CanManageUsers:         false,
+			CanViewCharts:          true,
+		}
+	case "AUDITOR":
+		return &models.RolePermission{
+			TenantID:               tenantUUID,
+			Role:                   role,
+			CanViewSensitiveData:   true,
+			CanEditTransactions:    false,
+			CanApproveTransactions: false,
+			CanManageUsers:         false,
+			CanViewCharts:          true,
+		}
+	case "OTHER_USER":
+		return &models.RolePermission{
+			TenantID:               tenantUUID,
+			Role:                   role,
+			CanViewSensitiveData:   false,
+			CanEditTransactions:    true,
+			CanApproveTransactions: false,
+			CanManageUsers:         false,
+			CanViewCharts:          false,
+		}
+	default:
+		return &models.RolePermission{
+			TenantID: tenantUUID,
+			Role:     role,
+		}
+	}
 }
 
 func respondWithError(w http.ResponseWriter, code int, message string) {

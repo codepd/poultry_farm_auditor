@@ -558,11 +558,12 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updatedFullName, updatedLang string
+	var updatedOnboardingVersion int
 	_ = database.DB.QueryRow(`
-		SELECT COALESCE(full_name, ''), COALESCE(preferred_language, 'en')
+		SELECT COALESCE(full_name, ''), COALESCE(preferred_language, 'en'), COALESCE(onboarding_version, 0)
 		FROM users
 		WHERE id = $1
-	`, user.UserID).Scan(&updatedFullName, &updatedLang)
+	`, user.UserID).Scan(&updatedFullName, &updatedLang, &updatedOnboardingVersion)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -570,6 +571,7 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]interface{}{
 			"full_name":          updatedFullName,
 			"preferred_language": updatedLang,
+			"onboarding_version": updatedOnboardingVersion,
 		},
 	})
 }

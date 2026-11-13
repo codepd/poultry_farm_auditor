@@ -34,6 +34,9 @@ var (
 //  3. AWS SSM Parameter Store SecureString (parameter from OTP_SSM_PARAMETER, KMS-decrypted)
 //  4. Key derived via SHA-256 from JWT_SECRET (local fallback)
 func ResolveOTPEncryptionKey(cfg *config.Config) ([]byte, string) {
+	if cfg == nil {
+		cfg = config.Load()
+	}
 	if cfg != nil && strings.TrimSpace(cfg.OTPEncryptionKey) != "" {
 		sum := sha256.Sum256([]byte(strings.TrimSpace(cfg.OTPEncryptionKey)))
 		return sum[:], "ENV:OTP_ENCRYPTION_KEY"

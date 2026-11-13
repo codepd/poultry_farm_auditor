@@ -331,15 +331,15 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert tenant
-	var tenantID uuid.UUID
+	tenantID := uuid.New()
 	err = database.DB.QueryRow(`
 		INSERT INTO tenants (
-			parent_id, name, location, country_code, currency, number_format, date_format, timezone, egg_price_reference_zone, financial_year_start_month, capacity,
+			id, parent_id, name, location, country_code, currency, number_format, date_format, timezone, egg_price_reference_zone, financial_year_start_month, capacity,
 			refresh_ttl_without_remember_hours, refresh_ttl_with_remember_days
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id
-	`, req.ParentID, req.Name, req.Location, req.CountryCode, req.Currency,
+	`, tenantID, req.ParentID, req.Name, req.Location, req.CountryCode, req.Currency,
 		req.NumberFormat, req.DateFormat, timezone, eggPriceReferenceZone, financialYearStartMonth, req.Capacity,
 		insertRefreshWithoutRememberHours, insertRefreshWithRememberDays).Scan(&tenantID)
 
@@ -347,6 +347,8 @@ func CreateTenant(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create tenant")
 		return
 	}
+
+	SeedDefaultRolePermissions(tenantID)
 
 	// Get created tenant
 	var tenant models.Tenant
@@ -684,4 +686,36 @@ func GetTenantItems(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"data":    items,
 	})
+}
+
+// SeedDefaultRolePermissions ensures every new tenant gets baseline RBAC rows for all supported roles.
+func SeedDefaultRolePermissions(tenantID uuid.UUID) {
+	if database.DB == nil {
+		return
+	}
+	defaults := []struct {
+		role        string
+		sensitive   bool
+		edit        bool
+		approve     bool
+		manageUsers bool
+		charts      bool
+	}{
+		{"ADMIN", true, true, true, true, true},
+		{"OWNER", true, true, true, true, true},
+		{"CO_OWNER", true, true, true, true, true},
+		{"MANAGER", false, true, true, false, true},
+		{"AUDITOR", true, false, false, false, true},
+		{"OTHER_USER", false, true, false, false, false},
+	}
+	for _, d := range defaults {
+		_, _ = database.DB.Exec(`
+			INSERT INTO role_permissions (
+				tenant_id, role, can_view_sensitive_data, can_edit_transactions,
+				can_approve_transactions, can_manage_users, can_view_charts
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (tenant_id, role) DO NOTHING
+		`, tenantID, d.role, d.sensitive, d.edit, d.approve, d.manageUsers, d.charts)
+	}
 }

@@ -141,7 +141,6 @@ func CreateTenantDirectly(w http.ResponseWriter, r *http.Request) {
 		req.DateFormat = "DD-MM-YYYY"
 	}
 
-	var tenantID uuid.UUID
 	var parentID *uuid.UUID
 
 	if req.ParentID != nil {
@@ -153,16 +152,19 @@ func CreateTenantDirectly(w http.ResponseWriter, r *http.Request) {
 		parentID = &parsed
 	}
 
+	tenantID := uuid.New()
 	err := database.DB.QueryRow(`
-		INSERT INTO tenants (parent_id, name, location, country_code, currency, number_format, date_format, capacity)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO tenants (id, parent_id, name, location, country_code, currency, number_format, date_format, capacity)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
-	`, parentID, req.Name, req.Location, req.CountryCode, req.Currency, req.NumberFormat, req.DateFormat, req.Capacity).Scan(&tenantID)
+	`, tenantID, parentID, req.Name, req.Location, req.CountryCode, req.Currency, req.NumberFormat, req.DateFormat, req.Capacity).Scan(&tenantID)
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create tenant")
 		return
 	}
+
+	SeedDefaultRolePermissions(tenantID)
 
 	// Return created tenant
 	var tenant models.Tenant

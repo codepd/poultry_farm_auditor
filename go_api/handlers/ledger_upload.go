@@ -355,6 +355,10 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func executePythonLedgerParser(filePath string, tenantID uuid.UUID, commit bool) (map[string]interface{}, error) {
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		absFilePath = filePath
+	}
 	projectRoot, _ := filepath.Abs("..")
 	pythonBin := filepath.Join(projectRoot, "python_backend", "venv", "bin", "python")
 	if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
@@ -364,7 +368,7 @@ func executePythonLedgerParser(filePath string, tenantID uuid.UUID, commit bool)
 	scriptPath := filepath.Join(projectRoot, "python_backend", "cli", "process_ledger_pdf.py")
 	args := []string{
 		scriptPath,
-		filePath,
+		absFilePath,
 		"--tenant-id", tenantID.String(),
 		"--json",
 	}
