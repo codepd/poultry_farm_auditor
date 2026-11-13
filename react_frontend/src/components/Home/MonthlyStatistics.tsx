@@ -12,7 +12,7 @@ interface MonthlyStatisticsProps {
   month: number;
 }
 
-type ProfitPreset = 'comprehensive' | 'ledger' | 'flock' | 'custom';
+type ProfitPreset = 'production' | 'comprehensive' | 'ledger' | 'flock' | 'custom';
 
 const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) => {
   const { isAuthenticated, currentTenant } = useAuth();
@@ -25,13 +25,13 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
 
-  // Profit Calculation Toggles
+  // Profit Calculation Toggles (default = 'production': Flock Operating + Rearing Feed, excludes overheads & TDS)
   const [includeHenSales, setIncludeHenSales] = useState(true);
   const [includeRearingFeed, setIncludeRearingFeed] = useState(true);
-  const [includeOverheads, setIncludeOverheads] = useState(true);
+  const [includeOverheads, setIncludeOverheads] = useState(false);
   const [includeDiscounts, setIncludeDiscounts] = useState(true);
-  const [includeTds, setIncludeTds] = useState(true);
-  const [activePreset, setActivePreset] = useState<ProfitPreset>('comprehensive');
+  const [includeTds, setIncludeTds] = useState(false);
+  const [activePreset, setActivePreset] = useState<ProfitPreset>('production');
 
   // Check if user can edit (OWNER, CO_OWNER, ADMIN, or MANAGER role)
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
@@ -81,7 +81,15 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
   // Preset switchers
   const applyPreset = (preset: ProfitPreset) => {
     setActivePreset(preset);
-    if (preset === 'flock') {
+    if (preset === 'production') {
+      // Flock + Rearing (Production Profit): Eggs + Discounts + Cull Hen Sales - Layer Feed - Rearing Feed - Meds
+      // Excludes fixed farm overheads (labor/EB/EMI) and TDS
+      setIncludeHenSales(true);
+      setIncludeRearingFeed(true);
+      setIncludeOverheads(false);
+      setIncludeDiscounts(true);
+      setIncludeTds(false);
+    } else if (preset === 'flock') {
       // Flock Laying Operational Profit: Eggs + Discounts - Layer Feed - Meds
       setIncludeHenSales(false);
       setIncludeRearingFeed(false);
@@ -142,6 +150,9 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
     const totalOutflow = layerFeedCost + (includeRearingFeed ? rearingFeedCost : 0) + meds + (includeOverheads ? overheads : 0) + (includeTds ? tds : 0);
     const margin = totalInflow > 0 ? (profit / totalInflow) * 100 : 0;
 
+    // Always-available "true bottom line" so non-comprehensive views never hide overheads entirely
+    const farmOverallProfit = eggRev + discounts + henSales - totalFeedCost - meds - overheads - tds;
+
     return {
       eggRev,
       discounts,
@@ -157,6 +168,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
       totalInflow,
       totalOutflow,
       margin,
+      farmOverallProfit,
     };
   }, [data, includeHenSales, includeRearingFeed, includeOverheads, includeDiscounts, includeTds]);
 
@@ -204,7 +216,9 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
     // so it matches the displayed Net Profit and is identical across English & Tamil views
     const netPerEgg = data.total_eggs_sold > 0 ? calcDetails.profit / data.total_eggs_sold : 0;
     const presetTitle =
-      activePreset === 'flock'
+      activePreset === 'production'
+        ? t('stats.profitProduction')
+        : activePreset === 'flock'
         ? t('stats.profitFlock')
         : activePreset === 'ledger'
         ? t('stats.profitLedger')
@@ -342,7 +356,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
           <h2>{t('stats.monthlyPerformance')} - {formatMonthYear(year, month)}</h2>
           <span className="subtitle">{t('stats.subtitle')}</span>
         </div>
-        <div className="stats-header-actions">
+        <div className="stats-header-actions" data-tour="share-report">
           <button
             type="button"
             onClick={handleWhatsAppShare}
@@ -377,6 +391,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
         <div className="profit-hero-top">
           <div className="profit-hero-main">
             <span className="profit-label">
+              {activePreset === 'production' && t('stats.profitProduction')}
               {activePreset === 'flock' && t('stats.profitFlock')}
               {activePreset === 'ledger' && t('stats.profitLedger')}
               {activePreset === 'comprehensive' && t('stats.profitComprehensive')}
@@ -392,13 +407,29 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
               <span className="profit-flow">
                 {t('stats.inflows')}: {formatLakhs(calcDetails.totalInflow)} | {t('stats.outflows')}: {formatLakhs(calcDetails.totalOutflow)}
               </span>
+              {activePreset !== 'comprehensive' && (
+                <span className="profit-flow" data-testid="farm-overall-hint">
+                  {t('stats.farmOverallHint')}:{' '}
+                  <strong className={calcDetails.farmOverallProfit >= 0 ? 'positive' : 'negative'}>
+                    {formatLakhs(calcDetails.farmOverallProfit)}
+                  </strong>
+                </span>
+              )}
             </div>
           </div>
 
           {/* Quick Presets */}
-          <div className="preset-selector">
+          <div className="preset-selector" data-tour="profit-presets">
             <span className="preset-label">{t('stats.quickViews')}</span>
             <div className="preset-buttons">
+              <button
+                type="button"
+                className={`preset-btn ${activePreset === 'production' ? 'active' : ''}`}
+                onClick={() => applyPreset('production')}
+                title="Flock + Rearing: Eggs + Discounts + Cull Hen Sales - Layer Feed - Rearing Feed - Meds (excludes overheads & TDS)"
+              >
+                {t('stats.presetProduction')}
+              </button>
               <button
                 type="button"
                 className={`preset-btn ${activePreset === 'flock' ? 'active' : ''}`}

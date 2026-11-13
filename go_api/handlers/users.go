@@ -466,11 +466,13 @@ func GetProfile(w http.ResponseWriter, r *http.Request) {
 
 	var email, phone, fullName, preferredLanguage string
 	var mustSetPassword bool
+	var onboardingVersion int
 	err := database.DB.QueryRow(`
-		SELECT COALESCE(email, ''), COALESCE(phone, ''), COALESCE(full_name, ''), COALESCE(preferred_language, 'en'), COALESCE(must_set_password, FALSE)
+		SELECT COALESCE(email, ''), COALESCE(phone, ''), COALESCE(full_name, ''), COALESCE(preferred_language, 'en'),
+		       COALESCE(must_set_password, FALSE), COALESCE(onboarding_version, 0)
 		FROM users
 		WHERE id = $1
-	`, user.UserID).Scan(&email, &phone, &fullName, &preferredLanguage, &mustSetPassword)
+	`, user.UserID).Scan(&email, &phone, &fullName, &preferredLanguage, &mustSetPassword, &onboardingVersion)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to load profile")
 		return
@@ -485,6 +487,7 @@ func GetProfile(w http.ResponseWriter, r *http.Request) {
 			"full_name":          fullName,
 			"preferred_language": preferredLanguage,
 			"must_set_password":  mustSetPassword,
+			"onboarding_version": onboardingVersion,
 		},
 	})
 }
@@ -500,15 +503,30 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FullName          *string `json:"full_name"`
 		PreferredLanguage *string `json:"preferred_language"`
+		OnboardingVersion *int    `json:"onboarding_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	if req.FullName == nil && req.PreferredLanguage == nil {
-		respondWithError(w, http.StatusBadRequest, "At least one of full_name or preferred_language is required")
+	if req.FullName == nil && req.PreferredLanguage == nil && req.OnboardingVersion == nil {
+		respondWithError(w, http.StatusBadRequest, "At least one of full_name, preferred_language or onboarding_version is required")
 		return
+	}
+
+	if req.OnboardingVersion != nil {
+		if *req.OnboardingVersion < 0 || *req.OnboardingVersion > 10000 {
+			respondWithError(w, http.StatusBadRequest, "Invalid onboarding_version")
+			return
+		}
+		// GREATEST() so an older client/device can never roll a user's tour progress backwards
+		if _, err := database.DB.Exec(`
+			UPDATE users SET onboarding_version = GREATEST(COALESCE(onboarding_version, 0), $1), updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, *req.OnboardingVersion, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update onboarding progress")
+			return
+		}
 	}
 
 	if req.FullName != nil {

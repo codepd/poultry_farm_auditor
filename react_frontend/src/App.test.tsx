@@ -10,6 +10,9 @@ import DataUploadPage from './pages/DataUploadPage';
 import LoginPage from './pages/LoginPage';
 import UserManagementPage from './pages/UserManagementPage';
 import HenBatchesPage from './pages/HenBatchesPage';
+import HomePage from './pages/HomePage';
+import OnboardingTour from './onboarding/OnboardingTour';
+import { TOUR_STEPS, CURRENT_TOUR_VERSION, getPendingSteps } from './onboarding/tourSteps';
 import api, { analyticsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI, authAPI } from './services/api';
 
 const mockNavigate = jest.fn();
@@ -93,6 +96,7 @@ jest.mock('./services/api', () => ({
   analyticsAPI: {
     getEnhancedMonthlySummary: jest.fn(),
     getMonthlyBreakdown: jest.fn(),
+    getLatestDataMonth: jest.fn(),
   },
   usersAPI: {
     getUsers: jest.fn(),
@@ -239,7 +243,7 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
     });
   });
 
-  test('produces identical numeric values in English and Tamil copy snapshots across all 3 profit presets and zero U+FFFD characters', async () => {
+  test('produces identical numeric values in English and Tamil copy snapshots across all 4 profit presets and zero U+FFFD characters', async () => {
     render(
       <LanguageProvider>
         <LanguageToggleHarness>
@@ -253,9 +257,22 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
       expect(screen.getAllByText(/7,98,060/).length).toBeGreaterThan(0);
     });
 
-    // --- PRESET 1: Default 'comprehensive' (Farm Overall) ---
+    // --- PRESET 0: Default 'production' (Flock + Rearing) ---
+    // Net Profit = 43,31,665.32 + 38,557 + 0 (hen sales) - 32,99,736.22 - 6,45,796.36 - 96,115 = +3,28,574.74
+    expect(screen.getAllByText(/Production Profit \(Flock \+ Rearing\)/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('farm-overall-hint').textContent).toContain('-₹53.4k');
+    fireEvent.click(screen.getByTitle('Copy Monthly Summary to Clipboard'));
+    await waitFor(() => expect(clipboardSpy).toHaveBeenCalledTimes(1));
+    const enProductionReport: string = clipboardSpy.mock.calls[0][0];
+    expect(enProductionReport).toContain('₹3,28,574.74');
+    expect(enProductionReport).toContain('₹0.41');
+    expect(enProductionReport).not.toContain('₹3,82,000');
+    clipboardSpy.mockClear();
+
+    // --- PRESET 1: 'comprehensive' (Farm Overall) ---
     // Net Profit = 43,31,665.32 + 38,557 - 32,99,736.22 - 6,45,796.36 - 96,115 - 3,82,000 = -53,425.26
     // Net Profit / Egg = -53,425.26 / 798,060 = -0.07
+    fireEvent.click(screen.getByTitle(/^Comprehensive:/i));
     fireEvent.click(screen.getByTitle('Copy Monthly Summary to Clipboard'));
     await waitFor(() => expect(clipboardSpy).toHaveBeenCalledTimes(1));
     const enComprehensiveReport: string = clipboardSpy.mock.calls[0][0];
@@ -648,5 +665,111 @@ describe('QA Suite 4: End-to-End Functional Workflows (Login, Team Magic Link, H
       expect(screen.getByText('Batch-A (Layer)')).toBeInTheDocument();
       expect(screen.getAllByText(/20,850/).length).toBeGreaterThan(0);
     });
+  });
+});
+
+// Lightweight stubs for Home sub-components not under test here (they call APIs unrelated to these checks)
+jest.mock('./components/Home/MonthlyBarChart', () => () => null);
+jest.mock('./components/Home/YearlyStatistics', () => () => null);
+jest.mock('./components/Home/DateRangeSummary', () => () => null);
+jest.mock('./components/Home/MultiCategoryEntry', () => () => null);
+
+describe('QA Suite 5: Latest-Data Month Default, Onboarding Walkthrough & Versioning', () => {
+  beforeEach(() => {
+    mockCurrentRole = 'OWNER';
+    mockMustSetPassword = false;
+    localStorage.clear();
+    sessionStorage.clear();
+    (usersAPI.updateProfile as jest.Mock).mockReset().mockResolvedValue({ success: true });
+    (analyticsAPI.getEnhancedMonthlySummary as jest.Mock).mockResolvedValue(SEPTEMBER_2026_FIXTURE);
+  });
+
+  test('HomePage opens on the latest month that has data (last loaded ledger) instead of an empty last calendar month', async () => {
+    (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', onboarding_version: CURRENT_TOUR_VERSION });
+    (analyticsAPI.getLatestDataMonth as jest.Mock).mockResolvedValue({ has_data: true, year: 2026, month: 9, source: 'EGG_SALES' });
+
+    render(
+      <LanguageProvider>
+        <HomePage />
+      </LanguageProvider>
+    );
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('Select month') as HTMLSelectElement).value).toBe('9');
+      expect((screen.getByLabelText('Select year') as HTMLSelectElement).value).toBe('2026');
+      expect(analyticsAPI.getEnhancedMonthlySummary).toHaveBeenLastCalledWith(2026, 9);
+    });
+  });
+
+  test('every tour step has EN + TA copy, versions are consistent, and pending steps are computed per user version', () => {
+    const ids = new Set<string>();
+    for (const step of TOUR_STEPS) {
+      expect(ids.has(step.id)).toBe(false);
+      ids.add(step.id);
+      expect(step.version).toBeGreaterThan(0);
+      for (const key of [step.titleKey, step.bodyKey]) {
+        expect(translations.en[key]).toBeTruthy();
+        expect(translations.ta[key]).toBeTruthy();
+      }
+    }
+    expect(CURRENT_TOUR_VERSION).toBe(Math.max(...TOUR_STEPS.map((s) => s.version)));
+    expect(getPendingSteps(0)).toHaveLength(TOUR_STEPS.length);
+    expect(getPendingSteps(CURRENT_TOUR_VERSION)).toHaveLength(0);
+  });
+
+  const renderTourWithTargets = () =>
+    render(
+      <LanguageProvider>
+        {TOUR_STEPS.filter((s) => s.target).map((s) => (
+          <div key={s.id} data-tour={s.target}>{s.id}</div>
+        ))}
+        <OnboardingTour />
+      </LanguageProvider>
+    );
+
+  test('first-time user sees the full walkthrough and completion is saved to the profile', async () => {
+    (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', onboarding_version: 0 });
+    renderTourWithTargets();
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-tour')).toBeInTheDocument());
+    expect(screen.getByText(/Welcome to MyKoliPannai/i)).toBeInTheDocument();
+    expect(screen.getByText(`Step 1 of ${TOUR_STEPS.length}`)).toBeInTheDocument();
+
+    for (let i = 1; i < TOUR_STEPS.length; i++) {
+      fireEvent.click(screen.getByText('Next →'));
+      await waitFor(() => expect(screen.getByText(`Step ${i + 1} of ${TOUR_STEPS.length}`)).toBeInTheDocument());
+    }
+    fireEvent.click(screen.getByText('✓ Got it'));
+
+    await waitFor(() => {
+      expect(usersAPI.updateProfile).toHaveBeenCalledWith({ onboarding_version: CURRENT_TOUR_VERSION });
+      expect(screen.queryByTestId('onboarding-tour')).not.toBeInTheDocument();
+    });
+  });
+
+  test('"Remind me later" keeps progress (resumes at the same step) and does not mark the tour complete', async () => {
+    (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', onboarding_version: 0 });
+    const { unmount } = renderTourWithTargets();
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-tour')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Next →'));
+    await waitFor(() => expect(screen.getByText(`Step 2 of ${TOUR_STEPS.length}`)).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Remind me later'));
+
+    expect(screen.queryByTestId('onboarding-tour')).not.toBeInTheDocument();
+    expect(usersAPI.updateProfile).not.toHaveBeenCalledWith(expect.objectContaining({ onboarding_version: expect.anything() }));
+    unmount();
+
+    // Next session: resumes at step 2
+    sessionStorage.clear();
+    renderTourWithTargets();
+    await waitFor(() => expect(screen.getByText(`Step 2 of ${TOUR_STEPS.length}`)).toBeInTheDocument());
+  });
+
+  test('user who completed the current tour version does not see it again', async () => {
+    (usersAPI.getProfile as jest.Mock).mockResolvedValue({ preferred_language: 'en', onboarding_version: CURRENT_TOUR_VERSION });
+    renderTourWithTargets();
+    await waitFor(() => expect(usersAPI.getProfile).toHaveBeenCalled());
+    expect(screen.queryByTestId('onboarding-tour')).not.toBeInTheDocument();
   });
 });

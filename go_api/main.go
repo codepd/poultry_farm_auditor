@@ -134,6 +134,7 @@ func main() {
 	protectedRouter.HandleFunc("/analytics/date-range-summary", handlers.GetDateRangeSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/last-12-months", handlers.GetLast12MonthsSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/monthly-breakdown", handlers.GetMonthlyBreakdown).Methods("GET")
+	protectedRouter.HandleFunc("/analytics/latest-data-month", handlers.GetLatestDataMonth).Methods("GET")
 
 	// Price history routes
 	protectedRouter.HandleFunc("/prices", handlers.GetPriceHistory).Methods("GET")

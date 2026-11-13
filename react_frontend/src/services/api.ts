@@ -539,6 +539,12 @@ export const analyticsAPI = {
     );
     return response.data.data;
   },
+  getLatestDataMonth: async (): Promise<{ has_data: boolean; year?: number; month?: number; source?: string }> => {
+    const response = await api.get<{ success: boolean; data: { has_data: boolean; year?: number; month?: number; source?: string } }>(
+      '/analytics/latest-data-month'
+    );
+    return response.data.data;
+  },
 };
 
 export interface TenantItem {
@@ -606,15 +612,15 @@ export const usersAPI = {
     const response = await api.get<{ success: boolean; data: InvitationInfo[] }>('/users/invitations');
     return response.data.data || [];
   },
-  getProfile: async (): Promise<{ user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean }> => {
-    const response = await api.get<{ success: boolean; data: { user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean } }>('/users/profile');
+  getProfile: async (): Promise<{ user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean; onboarding_version?: number }> => {
+    const response = await api.get<{ success: boolean; data: { user_id: number; email: string; phone: string; full_name: string; preferred_language: string; must_set_password?: boolean; onboarding_version?: number } }>('/users/profile');
     return response.data.data;
   },
   generateMagicLink: async (userId: number): Promise<{ invitation_id: number; token: string; magic_login_link: string; phone: string; email: string; expires_at: string }> => {
     const response = await api.post<{ success: boolean; data: { invitation_id: number; token: string; magic_login_link: string; phone: string; email: string; expires_at: string } }>('/users/magic-link', { user_id: userId });
     return response.data.data;
   },
-  updateProfile: async (data: { full_name?: string; preferred_language?: string }) => {
+  updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
     const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
     return response.data;
   },

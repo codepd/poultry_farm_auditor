@@ -25,7 +25,7 @@ const Navbar: React.FC = () => {
   ];
 
   return (
-    <nav className="app-navbar">
+    <nav className="app-navbar" data-tour="nav">
       <ul className="nav-list">
         {navItems.map((item) => (
           <li key={item.path}>

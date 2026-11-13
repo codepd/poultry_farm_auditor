@@ -230,6 +230,36 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'team.whatsappMagicLink': '📲 Send WhatsApp Login Link',
     'team.copyMagicLink': '📋 Copy Magic Link',
     'team.magicLinkReady': 'Secure One-Time Magic Login Link Ready',
+
+    // Production (Flock + Rearing) preset
+    'stats.presetProduction': '🐣 Flock + Rearing',
+    'stats.profitProduction': 'Production Profit (Flock + Rearing)',
+    'stats.farmOverallHint': 'Farm overall (incl. overheads & TDS)',
+
+    // Guided walkthrough
+    'tour.next': 'Next →',
+    'tour.back': '← Back',
+    'tour.finish': '✓ Got it',
+    'tour.later': 'Remind me later',
+    'tour.stepOf': 'Step {current} of {total}',
+    'tour.whatsNew': '✨ What’s new',
+    'tour.replay': '❓ App Guide',
+    'tour.welcome.title': '👋 Welcome to MyKoliPannai',
+    'tour.welcome.body': 'A quick tour of the key screens. It takes under a minute, and you can continue later from where you stopped.',
+    'tour.language.title': '🌐 English / தமிழ்',
+    'tour.language.body': 'Switch the app language anytime. Your choice is saved to your profile and follows you on every device.',
+    'tour.nav.title': '🧭 Main sections',
+    'tour.nav.body': 'Home (monthly profit), Expenses, Hen Batches, Price History, Upload Sheets (monthly ledgers) and Team.',
+    'tour.month.title': '📅 Pick a month',
+    'tour.month.body': 'The dashboard opens on the latest month that has data (e.g. your last uploaded ledger). Change the month or year here.',
+    'tour.presets.title': '🧮 Profit views',
+    'tour.presets.body': '“Flock + Rearing” (default) shows production profit before fixed overheads. “Farm Overall” adds labor, EB, EMI and TDS — the true bottom line is always shown below the main number.',
+    'tour.share.title': '📲 Share the monthly report',
+    'tour.share.body': 'Send the month’s summary on WhatsApp or copy it — in English or Tamil, matching the profit view you selected.',
+    'tour.quickLog.title': '⚡ Daily Quick-Log',
+    'tour.quickLog.body': 'Record today’s egg sale, feed/medicine expense or mortality in a few taps — ideal on your phone.',
+    'tour.install.title': '📲 Install as an app',
+    'tour.install.body': 'Add MyKoliPannai to your phone’s home screen for one-tap, full-screen access.',
   },
   ta: {
     // Navbar & Header
@@ -460,6 +490,36 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'team.whatsappMagicLink': '📲 வாட்ஸ்அப் உள்நுழைவு இணைப்பு',
     'team.copyMagicLink': '📋 இணைப்பை நகலெடு',
     'team.magicLinkReady': 'பாதுகாப்பான வாட்ஸ்அப் உள்நுழைவு இணைப்பு தயார்',
+
+    // Production (Flock + Rearing) preset
+    'stats.presetProduction': '🐣 கோழி + வளர்ப்பு',
+    'stats.profitProduction': 'உற்பத்தி லாபம் (கோழி + வளர்ப்பு)',
+    'stats.farmOverallHint': 'பண்ணை மொத்தம் (நிர்வாக செலவு & TDS உட்பட)',
+
+    // Guided walkthrough
+    'tour.next': 'அடுத்து →',
+    'tour.back': '← பின்',
+    'tour.finish': '✓ புரிந்தது',
+    'tour.later': 'பிறகு நினைவூட்டு',
+    'tour.stepOf': 'படி {current} / {total}',
+    'tour.whatsNew': '✨ புதியவை',
+    'tour.replay': '❓ செயலி வழிகாட்டி',
+    'tour.welcome.title': '👋 MyKoliPannai-க்கு வரவேற்கிறோம்',
+    'tour.welcome.body': 'முக்கியப் பக்கங்களின் சிறு அறிமுகம். ஒரு நிமிடத்திற்குள் முடியும்; நிறுத்திய இடத்திலிருந்து பிறகு தொடரலாம்.',
+    'tour.language.title': '🌐 English / தமிழ்',
+    'tour.language.body': 'எப்போது வேண்டுமானாலும் மொழியை மாற்றலாம். உங்கள் தேர்வு உங்கள் கணக்கில் சேமிக்கப்பட்டு எல்லா கருவிகளிலும் பின்பற்றப்படும்.',
+    'tour.nav.title': '🧭 முக்கியப் பகுதிகள்',
+    'tour.nav.body': 'முகப்பு (மாத லாபம்), செலவுகள், கோழிப் பேட்ச்கள், விலை நிலவரம், கணக்கு பதிவேற்றம் (மாத லெட்ஜர்) மற்றும் குழுவினர்.',
+    'tour.month.title': '📅 மாதம் தேர்வு',
+    'tour.month.body': 'தரவு உள்ள கடைசி மாதத்துடன் (எ.கா. கடைசியாக பதிவேற்றிய லெட்ஜர்) முகப்பு திறக்கும். இங்கே மாதம் அல்லது வருடத்தை மாற்றலாம்.',
+    'tour.presets.title': '🧮 லாபக் கணக்கு முறைகள்',
+    'tour.presets.body': '“கோழி + வளர்ப்பு” (இயல்பு) நிர்வாக செலவுகளுக்கு முந்தைய உற்பத்தி லாபத்தைக் காட்டும். “பண்ணை மொத்தம்” சம்பளம், EB, EMI, TDS சேர்க்கும் — உண்மையான இறுதி லாபம் எப்போதும் கீழே காட்டப்படும்.',
+    'tour.share.title': '📲 மாத அறிக்கையைப் பகிருங்கள்',
+    'tour.share.body': 'தேர்ந்தெடுத்த லாப முறைக்கு ஏற்ப மாதச் சுருக்கத்தை வாட்ஸ்அப்பில் அனுப்பலாம் அல்லது நகலெடுக்கலாம் — ஆங்கிலம் அல்லது தமிழில்.',
+    'tour.quickLog.title': '⚡ தினசரி விரைவுப் பதிவு',
+    'tour.quickLog.body': 'இன்றைய முட்டை விற்பனை, தீவன/மருந்து செலவு அல்லது இறப்பை சில தொடுதல்களில் பதிவு செய்யுங்கள் — போனில் மிக எளிது.',
+    'tour.install.title': '📲 செயலியாக நிறுவுங்கள்',
+    'tour.install.body': 'ஒரே தொடுதலில் முழுத்திரையில் திறக்க MyKoliPannai-ஐ உங்கள் போனின் முகப்புத் திரையில் சேர்க்கவும்.',
   },
 };
 

@@ -189,13 +189,14 @@ const Header: React.FC = () => {
             <button
               type="button"
               className="pwa-install-btn"
+              data-tour="install"
               onClick={handleInstallAppClick}
               title={t('pwa.installTitle')}
             >
               {t('pwa.installApp')}
             </button>
           )}
-          <div className="lang-switcher" role="group" aria-label={t('header.languageLabel')}>
+          <div className="lang-switcher" role="group" data-tour="language" aria-label={t('header.languageLabel')}>
             <button
               type="button"
               className={`lang-btn ${language === 'en' ? 'active' : ''}`}
@@ -273,6 +274,15 @@ const Header: React.FC = () => {
                       </button>
                       <button onClick={handleLogoutOtherDevices} className="secondary-action-btn" disabled={saving}>
                         {t('header.logoutOtherDevices')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          window.dispatchEvent(new Event('openOnboardingTour'));
+                        }}
+                        className="secondary-action-btn"
+                      >
+                        {t('tour.replay')}
                       </button>
                     </>
                   ) : (
