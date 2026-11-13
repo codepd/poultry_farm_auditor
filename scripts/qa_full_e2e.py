@@ -454,6 +454,7 @@ def test_pdf_upload_and_analytics(owner_token: str):
     )
     assert st == 200 and up_res.get("success") is True, f"Upload ledger PDF failed ({st}): {up_res}"
     up_data = up_res.get("data") or {}
+    assert up_data.get("parser") == "go_native", f"Expected native Go PDF parser, got {up_data.get('parser')}"
     assert up_data.get("sha256_hash"), "Missing sha256_hash on upload response"
 
     st_list, list_res = api_json("GET", "/admin/uploads", token=owner_token)
