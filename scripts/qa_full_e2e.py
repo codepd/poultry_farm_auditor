@@ -481,7 +481,18 @@ def test_pdf_upload_and_analytics(owner_token: str):
     assert float(sdata.get("total_eggs_sold", 0)) >= 25000.0, f"Expected total_eggs_sold >= 25000, got {sdata.get('total_eggs_sold')}"
     assert float(sdata.get("layer_feed_price", 0)) >= 102000.0, f"Expected layer_feed_price >= 102000, got {sdata.get('layer_feed_price')}"
     assert float(sdata.get("rearing_feed_price", 0)) >= 17000.0, f"Expected rearing_feed_price >= 17000, got {sdata.get('rearing_feed_price')}"
-    print(f"  ✓ PDF '{pdf_filename}' parsed & committed; latest-data-month={today.year}-{today.month:02d}; eggs={sdata.get('total_eggs_sold')}, layer_feed=₹{sdata.get('layer_feed_price')}, rearing_feed=₹{sdata.get('rearing_feed_price')}")
+
+    st_12m, res_12m = api_json("GET", "/analytics/last-12-months", token=owner_token)
+    assert st_12m == 200, f"GET /analytics/last-12-months failed: {res_12m}"
+    months_12 = res_12m.get("data") or []
+    assert len(months_12) == 12, f"Expected 12 months in last-12-months, got {len(months_12)}"
+    assert sum(float(m.get("sales", 0)) for m in months_12) > 0, "last-12-months total sales should be > 0"
+
+    st_yr, res_yr = api_json("GET", "/analytics/yearly-period-summary?period_type=calendar", token=owner_token)
+    assert st_yr == 200, f"GET /analytics/yearly-period-summary failed: {res_yr}"
+    years_data = res_yr.get("data") or []
+    assert len(years_data) >= 2 and sum(float(y.get("total_sales", 0)) for y in years_data) > 0, f"Expected >=2 years with sales > 0, got {years_data}"
+    print(f"  ✓ PDF '{pdf_filename}' parsed & committed; latest-data-month={today.year}-{today.month:02d}; eggs={sdata.get('total_eggs_sold')}, layer_feed=₹{sdata.get('layer_feed_price')}, rearing_feed=₹{sdata.get('rearing_feed_price')}; 12m & multi-year verified")
 
 
 def verify_profile_and_onboarding(owner_token: str):

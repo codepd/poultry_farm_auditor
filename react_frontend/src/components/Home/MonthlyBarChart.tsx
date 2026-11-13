@@ -108,9 +108,9 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
   const chartData = data.map((item) => {
     const locale = language === 'ta' ? 'ta-IN' : 'en-IN';
     const localizedShortMonth = new Date(Date.UTC(item.year, item.month - 1, 1))
-      .toLocaleString(locale, { month: 'short' });
+      .toLocaleString(locale, { month: 'short', timeZone: 'UTC' });
     const localizedFullMonth = new Date(Date.UTC(item.year, item.month - 1, 1))
-      .toLocaleString(locale, { month: 'long' });
+      .toLocaleString(locale, { month: 'long', timeZone: 'UTC' });
     return {
       ...item,
       monthLabel: `${localizedShortMonth}\n${item.year}`,

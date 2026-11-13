@@ -2231,8 +2231,8 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			EXTRACT(YEAR FROM transaction_date)::int AS yr,
 			EXTRACT(MONTH FROM transaction_date)::int AS mo,
-			COALESCE(category, ''),
-			COALESCE(transaction_type, ''),
+			COALESCE(category::text, ''),
+			COALESCE(transaction_type::text, ''),
 			COALESCE(item_name, ''),
 			COALESCE(SUM(amount), 0)
 		FROM transactions
@@ -2241,6 +2241,9 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 			AND transaction_date < $3
 		GROUP BY yr, mo, category, transaction_type, item_name
 	`, tenantID, windowStart, windowEnd)
+	if qErr != nil {
+		fmt.Printf("GetLast12MonthsSummary query error: %v\n", qErr)
+	}
 	if qErr == nil {
 		for rows.Next() {
 			var yr, mo int
