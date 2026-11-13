@@ -1,27 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { analyticsAPI } from '../services/api';
 import MultiCategoryEntry from '../components/Home/MultiCategoryEntry';
+import DailyQuickLogModal from '../components/Home/DailyQuickLogModal';
+import OnboardingTour from '../onboarding/OnboardingTour';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
 import YearlyStatistics from '../components/Home/YearlyStatistics';
 import MonthlyBarChart from '../components/Home/MonthlyBarChart';
 import DateRangeSummaryPanel from '../components/Home/DateRangeSummary';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
   const { currentTenant } = useAuth();
+  const { t, language } = useLanguage();
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
   const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showMobileQuickLog, setShowMobileQuickLog] = useState(false);
   const [showDateRange, setShowDateRange] = useState(false);
 
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
 
-  // Default to last month
+  // Default to last month until we know the latest month that actually has data
   const lastMonth = new Date();
   lastMonth.setMonth(lastMonth.getMonth() - 1);
   const [selectedYear, setSelectedYear] = useState(lastMonth.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(lastMonth.getMonth() + 1);
+  const userPickedMonthRef = useRef(false);
+
+  // Jump to the most recent month with data (e.g. the last loaded ledger), unless the user already picked a month.
+  useEffect(() => {
+    let cancelled = false;
+    const syncLatest = () => {
+      analyticsAPI
+        .getLatestDataMonth()
+        .then((latest) => {
+          if (cancelled || userPickedMonthRef.current) return;
+          if (latest?.has_data && latest.year && latest.month) {
+            setSelectedYear(latest.year);
+            setSelectedMonth(latest.month);
+          }
+        })
+        .catch(() => {});
+    };
+    syncLatest();
+    // After a ledger commit / quick-log entry, re-sync so the newly loaded month is shown
+    window.addEventListener('transactionsUpdated', syncLatest);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('transactionsUpdated', syncLatest);
+    };
+  }, []);
 
   const handleMonthClick = (year: number, month: number) => {
+    userPickedMonthRef.current = true;
     setSelectedYear(year);
     setSelectedMonth(month);
     setViewMode('monthly');
@@ -34,10 +66,21 @@ const HomePage: React.FC = () => {
         {canEdit && (
           <button
             type="button"
+            className="shortcut-pill active"
+            data-tour="quick-log"
+            onClick={() => setShowMobileQuickLog(true)}
+          >
+            {t('quickLog.btn')}
+          </button>
+        )}
+
+        {canEdit && (
+          <button
+            type="button"
             className={`shortcut-pill ${showQuickEntry ? 'active' : ''}`}
             onClick={() => setShowQuickEntry(!showQuickEntry)}
           >
-            {showQuickEntry ? '✕ Close Quick Entry' : '➕ Quick Data Entry'}
+            {showQuickEntry ? t('home.quickEntryClose') : t('home.quickEntryOpen')}
           </button>
         )}
 
@@ -46,7 +89,7 @@ const HomePage: React.FC = () => {
           className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
           onClick={() => setShowDateRange(!showDateRange)}
         >
-          {showDateRange ? '✕ Hide Date Range' : '📅 Custom Date Range Filter'}
+          {showDateRange ? t('home.dateRangeClose') : t('home.dateRangeOpen')}
         </button>
       </div>
 
@@ -62,6 +105,12 @@ const HomePage: React.FC = () => {
         </div>
       )}
 
+      {canEdit && showMobileQuickLog && (
+        <DailyQuickLogModal onClose={() => setShowMobileQuickLog(false)} />
+      )}
+
+      <OnboardingTour />
+
       <div className="statistics-section">
         {viewMode === 'monthly' && <MonthlyBarChart onMonthClick={handleMonthClick} />}
         
@@ -71,21 +120,21 @@ const HomePage: React.FC = () => {
               className={viewMode === 'monthly' ? 'active' : ''}
               onClick={() => setViewMode('monthly')}
             >
-              Monthly
+              {t('home.monthly')}
             </button>
             <button
               className={viewMode === 'yearly' ? 'active' : ''}
               onClick={() => setViewMode('yearly')}
             >
-              Yearly
+              {t('home.yearly')}
             </button>
           </div>
 
           {viewMode === 'monthly' && (
-            <div className="date-selector">
+            <div className="date-selector" data-tour="month">
               <select
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                onChange={(e) => { userPickedMonthRef.current = true; setSelectedYear(parseInt(e.target.value)); }}
                 title="Select year"
                 aria-label="Select year"
               >
@@ -97,13 +146,13 @@ const HomePage: React.FC = () => {
               </select>
               <select
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                onChange={(e) => { userPickedMonthRef.current = true; setSelectedMonth(parseInt(e.target.value)); }}
                 title="Select month"
                 aria-label="Select month"
               >
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                   <option key={month} value={month}>
-                    {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })}
+                    {new Date(2000, month - 1).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', { month: 'long' })}
                   </option>
                 ))}
               </select>

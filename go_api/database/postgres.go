@@ -35,6 +35,9 @@ func runMigrations() {
 	migrations := []string{
 		"ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
 		"ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20) UNIQUE",
+		"ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) DEFAULT 'en'",
+		"ALTER TABLE users ADD COLUMN IF NOT EXISTS must_set_password BOOLEAN DEFAULT FALSE",
+		"ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_version INTEGER DEFAULT 0",
 		`CREATE TABLE IF NOT EXISTS invitations (
 			id SERIAL PRIMARY KEY,
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -50,12 +53,14 @@ func runMigrations() {
 		`CREATE TABLE IF NOT EXISTS otp_codes (
 			id SERIAL PRIMARY KEY,
 			phone VARCHAR(20) NOT NULL,
-			code VARCHAR(6) NOT NULL,
+			code VARCHAR(255) NOT NULL,
 			tenant_id UUID NOT NULL,
 			verified BOOLEAN DEFAULT FALSE,
 			expires_at TIMESTAMP NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		"ALTER TABLE otp_codes ALTER COLUMN code TYPE VARCHAR(255)",
+		"ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS encrypted_code TEXT",
 		"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS parent_id UUID",
 		"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS location VARCHAR(255)",
 		"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",

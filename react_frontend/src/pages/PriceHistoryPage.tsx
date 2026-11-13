@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
 import PriceLineChart from '../components/PriceHistory/PriceLineChart';
 import { parseDateValue } from '../utils/dateUtils';
@@ -19,6 +20,7 @@ type ViewMode = 'chart' | 'table';
 
 const PriceHistoryPage: React.FC = () => {
   const { currentTenant } = useAuth();
+  const { t, tItem } = useLanguage();
   const [prices, setPrices] = useState<PriceHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -207,20 +209,20 @@ const PriceHistoryPage: React.FC = () => {
   return (
     <div className="price-history-page">
       <div className="page-header">
-        <h1>Price History</h1>
+        <h1>{t('prices.title')}</h1>
         <div className="header-actions">
           <div className="view-toggle">
             <button
               className={viewMode === 'chart' ? 'active' : ''}
               onClick={() => setViewMode('chart')}
             >
-              📊 Chart View
+              {t('prices.chartView')}
             </button>
             <button
               className={viewMode === 'table' ? 'active' : ''}
               onClick={() => setViewMode('table')}
             >
-              📋 Table View
+              {t('prices.tableView')}
             </button>
           </div>
           {canEdit && (
@@ -234,7 +236,7 @@ const PriceHistoryPage: React.FC = () => {
                 price: 0,
               });
             }} className="add-btn">
-              {showAddForm ? 'Cancel' : '+ Add Price'}
+              {showAddForm ? t('header.cancel') : t('prices.addPrice')}
             </button>
           )}
         </div>
@@ -463,7 +465,7 @@ const PriceHistoryPage: React.FC = () => {
           <div className="chart-panes">
             <div className="chart-pane">
               <div className="pane-header">
-                <h2>🥚 Egg Prices</h2>
+                <h2>{t('prices.eggPrices')}</h2>
                 <p className="pane-subtitle">
                   {yearOnYearMode 
                     ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
@@ -482,7 +484,7 @@ const PriceHistoryPage: React.FC = () => {
             </div>
             <div className="chart-pane">
               <div className="pane-header">
-                <h2>🌾 Feed Prices</h2>
+                <h2>{t('prices.feedPrices')}</h2>
                 <p className="pane-subtitle">
                   {yearOnYearMode 
                     ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
@@ -505,7 +507,7 @@ const PriceHistoryPage: React.FC = () => {
         <div className="table-panes">
           <div className="table-pane">
             <div className="pane-header">
-              <h2>🥚 Egg Prices</h2>
+              <h2>{t('prices.eggPrices')}</h2>
             </div>
             <div className="price-groups">
               {Object.entries(groupedPrices)
@@ -518,7 +520,7 @@ const PriceHistoryPage: React.FC = () => {
                   return (
                     <div key={key} className="price-group">
                       <h3>
-                        {itemName}
+                        {tItem(itemName)}
                         {items.some(p => p.id === 0) && (
                           <span className="monthly-avg-badge">(Monthly Averages)</span>
                         )}
@@ -618,7 +620,7 @@ const PriceHistoryPage: React.FC = () => {
           </div>
           <div className="table-pane">
             <div className="pane-header">
-              <h2>🌾 Feed Prices</h2>
+              <h2>{t('prices.feedPrices')}</h2>
             </div>
             <div className="price-groups">
               {Object.entries(groupedPrices)
@@ -630,7 +632,7 @@ const PriceHistoryPage: React.FC = () => {
                     .sort((a, b) => parseDateValue(b.price_date).getTime() - parseDateValue(a.price_date).getTime());
                   return (
                     <div key={key} className="price-group">
-                      <h3>{itemName}</h3>
+                      <h3>{tItem(itemName)}</h3>
                       <div className="price-mobile-cards">
                         {sortedItems.map((price) => (
                           <div key={price.id} className="price-mobile-card">

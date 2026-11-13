@@ -14,17 +14,21 @@ import (
 )
 
 type LoginRequest struct {
-	Email      string `json:"email" binding:"required"`
+	Email      string `json:"email"`
+	Phone      string `json:"phone"`
 	Password   string `json:"password" binding:"required"`
 	RememberMe bool   `json:"remember_me"`
 }
 
 type LoginResponse struct {
-	Token    string       `json:"token"`
-	UserID   int          `json:"user_id"`
-	Email    string       `json:"email"`
-	FullName string       `json:"full_name"`
-	Tenants  []TenantInfo `json:"tenants"`
+	Token             string       `json:"token"`
+	UserID            int          `json:"user_id"`
+	Email             string       `json:"email"`
+	Phone             string       `json:"phone,omitempty"`
+	FullName          string       `json:"full_name"`
+	PreferredLanguage string       `json:"preferred_language"`
+	MustSetPassword   bool         `json:"must_set_password"`
+	Tenants           []TenantInfo `json:"tenants"`
 }
 
 type TenantInfo struct {
@@ -34,7 +38,7 @@ type TenantInfo struct {
 	IsOwner  bool      `json:"is_owner"`
 }
 
-// Login handles user authentication
+// Login handles user authentication via Email/Username or Phone + Password
 func Login(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req LoginRequest
@@ -43,20 +47,34 @@ func Login(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Get user from database
+		identifier := strings.TrimSpace(req.Email)
+		if identifier == "" {
+			identifier = strings.TrimSpace(req.Phone)
+		}
+		if identifier == "" || strings.TrimSpace(req.Password) == "" {
+			respondWithError(w, http.StatusBadRequest, "Email/Phone and password are required")
+			return
+		}
+
+		// Get user from database by email OR phone
 		var userID int
-		var passwordHash string
-		var fullName string
+		var dbEmail sql.NullString
+		var dbPhone sql.NullString
+		var passwordHash sql.NullString
+		var fullName sql.NullString
+		var preferredLanguage string
+		var mustSetPassword bool
 		var isActive bool
 
 		err := database.DB.QueryRow(`
-			SELECT id, password_hash, full_name, is_active
+			SELECT id, email, phone, password_hash, full_name, COALESCE(preferred_language, 'en'), COALESCE(must_set_password, FALSE), is_active
 			FROM users
-			WHERE email = $1
-		`, req.Email).Scan(&userID, &passwordHash, &fullName, &isActive)
+			WHERE email = $1 OR phone = $1
+			LIMIT 1
+		`, identifier).Scan(&userID, &dbEmail, &dbPhone, &passwordHash, &fullName, &preferredLanguage, &mustSetPassword, &isActive)
 
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatusUnauthorized, "Invalid email or password")
+			respondWithError(w, http.StatusUnauthorized, "Invalid credentials")
 			return
 		}
 		if err != nil {
@@ -69,10 +87,15 @@ func Login(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		if !passwordHash.Valid || strings.TrimSpace(passwordHash.String) == "" {
+			respondWithError(w, http.StatusUnauthorized, "Password not set yet. Please use your WhatsApp Magic Link to set a password first.")
+			return
+		}
+
 		// Verify password
-		err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
+		err = bcrypt.CompareHashAndPassword([]byte(passwordHash.String), []byte(req.Password))
 		if err != nil {
-			respondWithError(w, http.StatusUnauthorized, "Invalid email or password")
+			respondWithError(w, http.StatusUnauthorized, "Invalid credentials")
 			return
 		}
 
@@ -112,7 +135,16 @@ func Login(cfg *config.Config) http.HandlerFunc {
 		}
 		refreshExpiresAt := time.Now().UTC().Add(refreshTTL)
 
-		tokenString, err := issueAccessToken(cfg, userID, req.Email, primaryTenant.TenantID, primaryTenant.Role)
+		emailStr := ""
+		if dbEmail.Valid {
+			emailStr = dbEmail.String
+		}
+		phoneStr := ""
+		if dbPhone.Valid {
+			phoneStr = dbPhone.String
+		}
+
+		tokenString, err := issueAccessToken(cfg, userID, emailStr, primaryTenant.TenantID, primaryTenant.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 			return
@@ -133,14 +165,25 @@ func Login(cfg *config.Config) http.HandlerFunc {
 		}
 		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
+		fullNameStr := ""
+		if fullName.Valid {
+			fullNameStr = fullName.String
+		}
+		if preferredLanguage == "" {
+			preferredLanguage = "en"
+		}
+
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"data": LoginResponse{
-				Token:    tokenString,
-				UserID:   userID,
-				Email:    req.Email,
-				FullName: fullName,
-				Tenants:  tenants,
+				Token:             tokenString,
+				UserID:            userID,
+				Email:             emailStr,
+				Phone:             phoneStr,
+				FullName:          fullNameStr,
+				PreferredLanguage: preferredLanguage,
+				MustSetPassword:   mustSetPassword,
+				Tenants:           tenants,
 			},
 		})
 	}

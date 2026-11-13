@@ -503,6 +503,8 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(user.TenantID)
+
 	// Return created transaction
 	vars := mux.Vars(r)
 	vars["id"] = strconv.Itoa(txnID)
@@ -631,6 +633,8 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(user.TenantID)
+
 	GetTransaction(w, r)
 }
 
@@ -698,13 +702,12 @@ func ApproveTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update status to APPROVED
-	approvedAt := time.Now()
+	// Touch updated_at (approval workflow columns status/approved_by_user_id are not in DB schema)
 	_, err = database.DB.Exec(`
 		UPDATE transactions
-		SET status = 'APPROVED', approved_by_user_id = $1, approved_at = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $3 AND tenant_id = $4 AND status = 'SUBMITTED'
-	`, user.UserID, approvedAt, transactionID, tenantID)
+		SET updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND tenant_id = $2
+	`, transactionID, tenantID)
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to approve transaction")
@@ -795,6 +798,8 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete transaction")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,

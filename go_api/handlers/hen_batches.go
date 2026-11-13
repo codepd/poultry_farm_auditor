@@ -209,6 +209,8 @@ func CreateHenBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(user.TenantID)
+
 	// Return created batch
 	vars := mux.Vars(r)
 	vars["id"] = strconv.Itoa(batchID)
@@ -297,6 +299,8 @@ func UpdateHenBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(user.TenantID)
+
 	GetHenBatch(w, r)
 }
 
@@ -350,6 +354,8 @@ func DeleteHenBatch(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete hen batch")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -426,6 +432,8 @@ func CreateMortality(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to record mortality")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"success": true,
@@ -651,6 +659,8 @@ func CreateHenBatchSale(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit sale transaction")
 		return
 	}
+
+	InvalidateAnalyticsCache(user.TenantID)
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"success": true,

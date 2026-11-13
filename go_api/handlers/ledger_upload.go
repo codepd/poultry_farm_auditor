@@ -307,10 +307,10 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	asyncMode := r.URL.Query().Get("async") == "true" || r.FormValue("async") == "true"
 
 	if asyncMode {
-		go func(uID int, fPath string, tID uuid.UUID, doCommit bool, s3Bucket, s3K string) {
-			result, parseErr := executePythonLedgerParser(fPath, tID, doCommit)
+		go func(uID int, fPath, fType string, tID uuid.UUID, doCommit bool, fy, fm int) {
+			result, parseErr := runLedgerParser(fPath, fType, tID, doCommit, fy, fm)
 			updateDocumentUploadAfterParse(uID, tID, result, parseErr, doCommit)
-		}(uploadID, stagedPath, tenantID, commit, cfg.S3DocumentsBucket, s3Key)
+		}(uploadID, stagedPath, fileType, tenantID, commit, inferredYear, inferredMonth)
 
 		respondWithJSON(w, http.StatusAccepted, map[string]interface{}{
 			"success": true,
@@ -331,7 +331,7 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Synchronous execution (used for immediate preview or commit)
-	result, parseErr := executePythonLedgerParser(stagedPath, tenantID, commit)
+	result, parseErr := runLedgerParser(stagedPath, fileType, tenantID, commit, inferredYear, inferredMonth)
 	updateDocumentUploadAfterParse(uploadID, tenantID, result, parseErr, commit)
 
 	if parseErr != nil && result == nil {
@@ -354,7 +354,18 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func runLedgerParser(filePath, fileType string, tenantID uuid.UUID, commit bool, fallbackYear, fallbackMonth int) (map[string]interface{}, error) {
+	if fileType == "LEDGER_PDF" || strings.EqualFold(filepath.Ext(filePath), ".pdf") {
+		return ParseAndCommitLedgerPDF(filePath, tenantID, commit, fallbackYear, fallbackMonth)
+	}
+	return executePythonLedgerParser(filePath, tenantID, commit)
+}
+
 func executePythonLedgerParser(filePath string, tenantID uuid.UUID, commit bool) (map[string]interface{}, error) {
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		absFilePath = filePath
+	}
 	projectRoot, _ := filepath.Abs("..")
 	pythonBin := filepath.Join(projectRoot, "python_backend", "venv", "bin", "python")
 	if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
@@ -364,7 +375,7 @@ func executePythonLedgerParser(filePath string, tenantID uuid.UUID, commit bool)
 	scriptPath := filepath.Join(projectRoot, "python_backend", "cli", "process_ledger_pdf.py")
 	args := []string{
 		scriptPath,
-		filePath,
+		absFilePath,
 		"--tenant-id", tenantID.String(),
 		"--json",
 	}
@@ -428,6 +439,7 @@ func updateDocumentUploadAfterParse(uploadID int, tenantID uuid.UUID, result map
 	status := "PARSED"
 	if committed {
 		status = "COMMITTED"
+		InvalidateAnalyticsCache(tenantID.String())
 	}
 
 	var parsedYear, parsedMonth *int
@@ -518,7 +530,7 @@ func CommitDocumentUploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, parseErr := executePythonLedgerParser(stagedPath, tenantID, true)
+	result, parseErr := runLedgerParser(stagedPath, "", tenantID, true, 0, 0)
 	updateDocumentUploadAfterParse(uploadID, tenantID, result, parseErr, true)
 	if parseErr != nil && result == nil {
 		respondWithError(w, http.StatusUnprocessableEntity, parseErr.Error())

@@ -4,8 +4,13 @@ import { authAPI, LoginResponse, TenantInfo } from '../services/api';
 interface AuthContextType {
   user: LoginResponse | null;
   currentTenant: TenantInfo | null;
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (identifier: string, password: string, rememberMe?: boolean) => Promise<void>;
   loginWithOTP: (phone: string, code: string, rememberMe?: boolean) => Promise<void>;
+  loginWithMagicLink: (
+    token: string,
+    rememberMe?: boolean,
+    verification?: { phone?: string; email?: string; password?: string; full_name?: string }
+  ) => Promise<void>;
   logout: () => void;
   switchTenant: (tenantId: string) => void;
   updateUser: (patch: Partial<LoginResponse>) => void;
@@ -87,13 +92,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(response);
   };
 
-  const login = async (email: string, password: string, rememberMe = false) => {
-    const response = await authAPI.login({ email, password, remember_me: rememberMe });
+  const login = async (identifier: string, password: string, rememberMe = false) => {
+    const trimmed = identifier.trim();
+    const isPhone = trimmed.startsWith('+') || /^\d{7,15}$/.test(trimmed);
+    const response = await authAPI.login({
+      ...(isPhone ? { phone: trimmed } : { email: trimmed }),
+      password,
+      remember_me: rememberMe,
+    });
     handleLoginResponse(response);
   };
 
   const loginWithOTP = async (phone: string, code: string, rememberMe = false) => {
     const response = await authAPI.verifyOTP({ phone, code, remember_me: rememberMe });
+    handleLoginResponse(response);
+  };
+
+  const loginWithMagicLink = async (
+    token: string,
+    rememberMe = true,
+    verification?: { phone?: string; email?: string; password?: string; full_name?: string }
+  ) => {
+    const response = await authAPI.loginWithMagicLink({
+      token,
+      remember_me: rememberMe,
+      ...(verification || {}),
+    });
     handleLoginResponse(response);
   };
 
@@ -132,6 +156,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         currentTenant,
         login,
         loginWithOTP,
+        loginWithMagicLink,
         logout,
         switchTenant,
         updateUser,

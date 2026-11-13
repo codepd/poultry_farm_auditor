@@ -530,6 +530,22 @@
   flex-wrap: wrap;
 }
 
+.vault-search-input {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #334155;
+  background: #ffffff;
+  min-width: 210px;
+}
+
+.vault-search-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+
 .vault-filter-select {
   padding: 0.45rem 0.75rem;
   border: 1px solid #cbd5e1;

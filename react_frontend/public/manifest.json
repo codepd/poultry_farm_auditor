@@ -1,6 +1,6 @@
 {
-  "short_name": "Poultry Farm",
-  "name": "Poultry Farm Management",
+  "short_name": "MyKoliPannai",
+  "name": "MyKoliPannai - Poultry Farm Manager (கோழிப் பண்ணை)",
   "icons": [
     {
       "src": "favicon.svg",
@@ -15,6 +15,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#4f46e5",
+  "background_color": "#f8fafc"
 }

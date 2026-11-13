@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var phoneRegex = regexp.MustCompile(`^\+\d{1,4}\d{6,14}$`)
@@ -141,20 +142,35 @@ func SendOTP(cfg *config.Config) http.HandlerFunc {
 		// Invalidate previous unused OTPs for this phone
 		database.DB.Exec("UPDATE otp_codes SET verified = TRUE WHERE phone = $1 AND verified = FALSE", phone)
 
-		// Store OTP (expires in 5 minutes) — use UTC to match PostgreSQL's NOW()
-		expiresAt := time.Now().UTC().Add(5 * time.Minute)
-		_, err = database.DB.Exec(`
-			INSERT INTO otp_codes (phone, code, tenant_id, expires_at)
-			VALUES ($1, $2, $3, $4)
-		`, phone, otp, allowedTenantID, expiresAt)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to store OTP")
+		// Encrypt OTP with AES-256-GCM (key resolved from AWS Secrets Manager / SSM SecureString)
+		// and compute HMAC-SHA256 digest for lookup so plaintext OTP is never stored or logged.
+		encryptedOTP, keySource, encErr := EncryptOTP(otp, cfg)
+		if encErr != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to encrypt OTP")
 			return
 		}
+		hashedOTP := HashOTPForLookup(phone, otp, cfg)
 
-		// TODO: Send OTP via SMS provider (Twilio, MSG91, AWS SNS)
-		// For now, log the OTP for development
-		log.Printf("📱 OTP for %s: %s (tenant: %s)", phone, otp, tenantName)
+		// Store hashed & encrypted OTP (expires in 5 minutes) — use UTC to match PostgreSQL's NOW()
+		expiresAt := time.Now().UTC().Add(5 * time.Minute)
+		_, err = database.DB.Exec(`
+			INSERT INTO otp_codes (phone, code, encrypted_code, tenant_id, expires_at)
+			VALUES ($1, $2, $3, $4, $5)
+		`, phone, hashedOTP, encryptedOTP, allowedTenantID, expiresAt)
+		if err != nil {
+			// Fallback if encrypted_code column is not yet migrated
+			_, err = database.DB.Exec(`
+				INSERT INTO otp_codes (phone, code, tenant_id, expires_at)
+				VALUES ($1, $2, $3, $4)
+			`, phone, hashedOTP, allowedTenantID, expiresAt)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to store OTP")
+				return
+			}
+		}
+
+		// Never log plaintext OTP! Log only the AES-256-GCM encrypted token and key vault source.
+		log.Printf("🔒 [OTP] Phone: %s | EncryptedOTP: %s | KeyVault: %s | Tenant: %s", phone, encryptedOTP, keySource, tenantName)
 
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success":    true,
@@ -182,14 +198,16 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// Find valid OTP
+		hashedCandidate := HashOTPForLookup(phone, code, cfg)
+
+		// Find valid OTP (matches HMAC-SHA256 digest or legacy plaintext)
 		var otpID int
 		var tenantID uuid.UUID
 		err := database.DB.QueryRow(`
 			SELECT id, tenant_id FROM otp_codes
-			WHERE phone = $1 AND code = $2 AND verified = FALSE AND expires_at > NOW()
+			WHERE phone = $1 AND (code = $2 OR code = $3) AND verified = FALSE AND expires_at > NOW()
 			ORDER BY created_at DESC LIMIT 1
-		`, phone, code).Scan(&otpID, &tenantID)
+		`, phone, hashedCandidate, code).Scan(&otpID, &tenantID)
 
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusUnauthorized, "Invalid or expired OTP")
@@ -207,11 +225,14 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 		var userID int
 		var email sql.NullString
 		var fullName sql.NullString
+		var passwordHash sql.NullString
+		var preferredLanguage string
+		var mustSetPassword bool
 		var isActive bool
 
 		err = database.DB.QueryRow(
-			"SELECT id, email, full_name, is_active FROM users WHERE phone = $1", phone,
-		).Scan(&userID, &email, &fullName, &isActive)
+			"SELECT id, email, full_name, password_hash, COALESCE(preferred_language, 'en'), COALESCE(must_set_password, FALSE), is_active FROM users WHERE phone = $1", phone,
+		).Scan(&userID, &email, &fullName, &passwordHash, &preferredLanguage, &mustSetPassword, &isActive)
 
 		if err == sql.ErrNoRows {
 			// New user — look up invitation for role
@@ -229,13 +250,14 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 			}
 
 			err = database.DB.QueryRow(`
-				INSERT INTO users (phone, is_active) VALUES ($1, TRUE) RETURNING id
+				INSERT INTO users (phone, is_active, must_set_password) VALUES ($1, TRUE, TRUE) RETURNING id
 			`, phone).Scan(&userID)
 			if err != nil {
 				respondWithError(w, http.StatusInternalServerError, "Failed to create user")
 				return
 			}
 			isActive = true
+			mustSetPassword = true
 
 			_, err = database.DB.Exec(`
 				INSERT INTO tenant_users (tenant_id, user_id, role, is_owner)
@@ -252,6 +274,10 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 		} else if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Database error")
 			return
+		}
+
+		if !passwordHash.Valid || strings.TrimSpace(passwordHash.String) == "" {
+			mustSetPassword = true
 		}
 
 		// Check for pending invitations that may upgrade an existing user's role
@@ -344,14 +370,332 @@ func VerifyOTP(cfg *config.Config) http.HandlerFunc {
 		}
 		setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
 
+		if preferredLanguage == "" {
+			preferredLanguage = "en"
+		}
+
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"data": LoginResponse{
-				Token:    tokenString,
-				UserID:   userID,
-				Email:    emailStr,
-				FullName: fullNameStr,
-				Tenants:  tenants,
+				Token:             tokenString,
+				UserID:            userID,
+				Email:             emailStr,
+				Phone:             phone,
+				FullName:          fullNameStr,
+				PreferredLanguage: preferredLanguage,
+				MustSetPassword:   mustSetPassword,
+				Tenants:           tenants,
+			},
+		})
+	}
+}
+
+type MagicLinkLoginRequest struct {
+	Token      string `json:"token"`
+	Phone      string `json:"phone,omitempty"`
+	Email      string `json:"email,omitempty"`
+	Password   string `json:"password,omitempty"`
+	FullName   string `json:"full_name,omitempty"`
+	RememberMe bool   `json:"remember_me"`
+}
+
+func normalizeDigitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// phonesMatch compares the invited phone (+919876543210) against the user-entered phone (+919876543210 or 9876543210).
+func phonesMatch(invitedPhone, enteredPhone string) bool {
+	invDigits := normalizeDigitsOnly(invitedPhone)
+	entDigits := normalizeDigitsOnly(enteredPhone)
+	if invDigits == "" || entDigits == "" || len(entDigits) < 7 {
+		return false
+	}
+	if invDigits == entDigits {
+		return true
+	}
+	if len(invDigits) >= 10 && len(entDigits) >= 10 {
+		return invDigits[len(invDigits)-10:] == entDigits[len(entDigits)-10:]
+	}
+	return false
+}
+
+// MagicLinkLogin validates a single-use, HMAC-signed WhatsApp Magic Link token,
+// verifies the recipient's phone/email, sets their password/PIN, and burns the token atomically.
+func MagicLinkLogin(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req MagicLinkLoginRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		token := strings.TrimSpace(req.Token)
+		if token == "" {
+			respondWithError(w, http.StatusBadRequest, "Magic login token is required")
+			return
+		}
+
+		tx, err := database.DB.Begin()
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Database error")
+			return
+		}
+		defer tx.Rollback()
+
+		var inviteID int
+		var tenantID uuid.UUID
+		var invEmail sql.NullString
+		var invPhone sql.NullString
+		var role string
+		var expiresAt time.Time
+		var acceptedAt sql.NullTime
+
+		err = tx.QueryRow(`
+			SELECT id, tenant_id, email, phone, role, expires_at, accepted_at
+			FROM invitations
+			WHERE token = $1
+			FOR UPDATE
+		`, token).Scan(&inviteID, &tenantID, &invEmail, &invPhone, &role, &expiresAt, &acceptedAt)
+
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusUnauthorized, "Invalid or expired WhatsApp Magic Link")
+			return
+		}
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Database error")
+			return
+		}
+
+		if acceptedAt.Valid {
+			respondWithError(w, http.StatusBadRequest, "This WhatsApp Magic Link has already been used and cannot be replayed. Please log in with your password.")
+			return
+		}
+
+		if time.Now().UTC().After(expiresAt.UTC()) {
+			respondWithError(w, http.StatusBadRequest, "This WhatsApp Magic Link has expired. Ask your Farm Admin for a new link.")
+			return
+		}
+
+		emailVal := ""
+		if invEmail.Valid {
+			emailVal = strings.TrimSpace(invEmail.String)
+		}
+		phoneVal := ""
+		if invPhone.Valid {
+			phoneVal = strings.TrimSpace(invPhone.String)
+		}
+
+		recipientTarget := phoneVal
+		if recipientTarget == "" {
+			recipientTarget = emailVal
+		}
+
+		// Verify cryptographic HMAC signature to ensure the link was issued by our server
+		if !VerifySignedMagicToken(token, recipientTarget, cfg) {
+			respondWithError(w, http.StatusUnauthorized, "Invalid magic link signature")
+			return
+		}
+
+		// Verify recipient phone/email match when the invitation is bound to a phone or email
+		enteredPhone := strings.TrimSpace(req.Phone)
+		enteredEmail := strings.TrimSpace(req.Email)
+		if phoneVal != "" {
+			if enteredPhone == "" || !phonesMatch(phoneVal, enteredPhone) {
+				respondWithError(w, http.StatusUnauthorized, "Entered phone number does not match this invitation link")
+				return
+			}
+		} else if emailVal != "" && enteredEmail != "" {
+			if !strings.EqualFold(emailVal, enteredEmail) {
+				respondWithError(w, http.StatusUnauthorized, "Entered email does not match this invitation link")
+				return
+			}
+		}
+
+		newPassword := strings.TrimSpace(req.Password)
+		var passwordHashStr string
+		mustSetPassword := true
+		if newPassword != "" {
+			if len(newPassword) < 6 {
+				respondWithError(w, http.StatusBadRequest, "Password/PIN must be at least 6 characters")
+				return
+			}
+			hashedBytes, hashErr := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+			if hashErr != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+				return
+			}
+			passwordHashStr = string(hashedBytes)
+			mustSetPassword = false
+		}
+
+		var userID int
+		var dbEmail sql.NullString
+		var dbPhone sql.NullString
+		var fullName sql.NullString
+		var preferredLanguage string
+
+		if phoneVal != "" {
+			err = tx.QueryRow(`
+				SELECT id, email, phone, full_name, COALESCE(preferred_language, 'en')
+				FROM users WHERE phone = $1
+			`, phoneVal).Scan(&userID, &dbEmail, &dbPhone, &fullName, &preferredLanguage)
+		} else if emailVal != "" {
+			err = tx.QueryRow(`
+				SELECT id, email, phone, full_name, COALESCE(preferred_language, 'en')
+				FROM users WHERE email = $1
+			`, emailVal).Scan(&userID, &dbEmail, &dbPhone, &fullName, &preferredLanguage)
+		} else {
+			respondWithError(w, http.StatusBadRequest, "Invalid invitation target")
+			return
+		}
+
+		enteredFullName := strings.TrimSpace(req.FullName)
+
+		if err == sql.ErrNoRows {
+			err = tx.QueryRow(`
+				INSERT INTO users (email, phone, password_hash, full_name, is_active, must_set_password)
+				VALUES (NULLIF($1, ''), NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), TRUE, $5)
+				RETURNING id
+			`, emailVal, phoneVal, passwordHashStr, enteredFullName, mustSetPassword).Scan(&userID)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to create user account")
+				return
+			}
+			preferredLanguage = "en"
+		} else if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Database error")
+			return
+		} else {
+			if passwordHashStr != "" {
+				_, err = tx.Exec(`
+					UPDATE users
+					SET password_hash = $1,
+					    full_name = COALESCE(NULLIF($2, ''), full_name),
+					    is_active = TRUE,
+					    must_set_password = FALSE,
+					    updated_at = CURRENT_TIMESTAMP
+					WHERE id = $3
+				`, passwordHashStr, enteredFullName, userID)
+			} else {
+				_, err = tx.Exec(`
+					UPDATE users
+					SET is_active = TRUE,
+					    must_set_password = TRUE,
+					    updated_at = CURRENT_TIMESTAMP
+					WHERE id = $1
+				`, userID)
+			}
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to update user account")
+				return
+			}
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO tenant_users (tenant_id, user_id, role, is_owner)
+			VALUES ($1, $2, $3, FALSE)
+			ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = $3, updated_at = CURRENT_TIMESTAMP
+		`, tenantID, userID, role)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to assign tenant role")
+			return
+		}
+
+		// Burn the one-time magic link inside the same transaction so it can never be replayed
+		_, err = tx.Exec(`UPDATE invitations SET accepted_at = NOW() WHERE id = $1`, inviteID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to finalize invitation")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to commit magic login")
+			return
+		}
+
+		// Fetch user's tenants
+		rows, err := database.DB.Query(`
+			SELECT tu.tenant_id, t.name, tu.role, tu.is_owner
+			FROM tenant_users tu
+			JOIN tenants t ON t.id = tu.tenant_id
+			WHERE tu.user_id = $1
+		`, userID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch tenants")
+			return
+		}
+		defer rows.Close()
+
+		var tenants []TenantInfo
+		for rows.Next() {
+			var tenant TenantInfo
+			if err := rows.Scan(&tenant.TenantID, &tenant.Name, &tenant.Role, &tenant.IsOwner); err == nil {
+				tenants = append(tenants, tenant)
+			}
+		}
+
+		if len(tenants) == 0 {
+			respondWithError(w, http.StatusForbidden, "User has no tenant access")
+			return
+		}
+
+		primaryTenant := tenants[0]
+		emailStr := emailVal
+		if dbEmail.Valid && dbEmail.String != "" {
+			emailStr = dbEmail.String
+		}
+		phoneStr := phoneVal
+		if dbPhone.Valid && dbPhone.String != "" {
+			phoneStr = dbPhone.String
+		}
+		fullNameStr := enteredFullName
+		if fullNameStr == "" && fullName.Valid {
+			fullNameStr = fullName.String
+		}
+
+		noRememberTTL, rememberTTL := getTenantRefreshDurations(primaryTenant.TenantID)
+		refreshTTL := rememberTTL
+		if !req.RememberMe {
+			refreshTTL = noRememberTTL
+		}
+		refreshExpiresAt := time.Now().UTC().Add(refreshTTL)
+
+		tokenString, err := issueAccessToken(cfg, userID, emailStr, primaryTenant.TenantID, primaryTenant.Role)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
+			return
+		}
+
+		refreshToken, err := createRefreshSession(
+			userID,
+			primaryTenant.TenantID,
+			true,
+			refreshExpiresAt,
+			strings.TrimSpace(r.UserAgent()),
+			strings.TrimSpace(r.RemoteAddr),
+			DeviceIDFromRequest(r),
+		)
+		if err == nil {
+			setRefreshTokenCookie(w, cfg, refreshToken, refreshExpiresAt)
+		}
+
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"data": LoginResponse{
+				Token:             tokenString,
+				UserID:            userID,
+				Email:             emailStr,
+				Phone:             phoneStr,
+				FullName:          fullNameStr,
+				PreferredLanguage: preferredLanguage,
+				MustSetPassword:   mustSetPassword,
+				Tenants:           tenants,
 			},
 		})
 	}

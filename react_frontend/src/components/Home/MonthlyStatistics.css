@@ -7,6 +7,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   margin-bottom: 1.5rem;
   padding: 0 0.25rem;
 }
@@ -25,6 +27,47 @@
   display: block;
 }
 
+.stats-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.share-whatsapp-btn {
+  padding: 0.5rem 1rem;
+  background: #16a34a;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.2s;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.2);
+}
+
+.share-whatsapp-btn:hover {
+  background: #15803d;
+}
+
+.copy-summary-btn {
+  padding: 0.5rem 0.9rem;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.copy-summary-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
 .refresh-btn {
   padding: 0.5rem 1.25rem;
   background: #4f46e5;
@@ -40,6 +83,155 @@
 
 .refresh-btn:hover {
   background: #4338ca;
+}
+
+/* Smart Flock & Feed Intelligence Alerts */
+.flock-alerts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.flock-alert-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1.15rem;
+  border-radius: 10px;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
+.flock-alert-banner.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.flock-alert-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 240px;
+}
+
+.flock-alert-icon {
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.flock-alert-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.flock-alert-banner.info .flock-alert-title {
+  color: #1e40af;
+}
+
+.flock-alert-desc {
+  font-size: 0.82rem;
+  color: #78350f;
+  margin-top: 0.2rem;
+  line-height: 1.4;
+}
+
+.flock-alert-banner.info .flock-alert-desc {
+  color: #1e3a8a;
+}
+
+.flock-alert-action-btn {
+  padding: 0.45rem 0.95rem;
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.flock-alert-action-btn:hover {
+  background: #b45309;
+}
+
+/* Unit Economics & Feed Efficiency Card */
+.unit-economics-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1.15rem 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.unit-economics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.unit-economics-header h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.unit-economics-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.75rem;
+}
+
+.ue-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.7rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ue-item.highlight {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.ue-label {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ue-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin-top: 0.25rem;
+}
+
+.ue-val.positive {
+  color: #10b981;
+}
+
+.ue-val.negative {
+  color: #ef4444;
+}
+
+.ue-sub {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-top: 0.15rem;
 }
 
 /* Hero Profit Card */
@@ -567,6 +759,10 @@
     grid-template-columns: 1fr;
   }
 
+  .unit-economics-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
   .vendor-balance-row {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -579,6 +775,10 @@
 
   .profit-amount {
     font-size: 1.85rem;
+  }
+
+  .unit-economics-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .feed-stage-split {

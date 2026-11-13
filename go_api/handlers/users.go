@@ -189,10 +189,17 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate invitation token
-	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
-	token := hex.EncodeToString(tokenBytes)
+	// Generate HMAC-signed magic invitation token bound to recipient (phone or email)
+	recipientTarget := phone
+	if recipientTarget == "" {
+		recipientTarget = email
+	}
+	token, err := GenerateSignedMagicToken(recipientTarget, nil)
+	if err != nil {
+		tokenBytes := make([]byte, 32)
+		rand.Read(tokenBytes)
+		token = hex.EncodeToString(tokenBytes)
+	}
 
 	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
 
@@ -209,29 +216,123 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:4300"
+	}
+
+	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
+	invitationLink := fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
+
 	responseData := map[string]interface{}{
-		"invitation_id": inviteID,
-		"role":          req.Role,
-		"expires_at":    expiresAt,
+		"invitation_id":    inviteID,
+		"role":             req.Role,
+		"expires_at":       expiresAt,
+		"token":            token,
+		"invitation_link":  invitationLink,
+		"magic_login_link": magicLoginLink,
 	}
 
 	if isPhoneInvite {
 		responseData["phone"] = phone
-		responseData["message"] = "Phone invitation created. The user can now log in with OTP."
+		responseData["message"] = "Invitation created. Share the WhatsApp Magic Link with the user."
 	} else {
-		frontendURL := os.Getenv("FRONTEND_URL")
-		if frontendURL == "" {
-			frontendURL = "http://localhost:4300"
-		}
 		responseData["email"] = email
-		responseData["token"] = token
-		responseData["invitation_link"] = fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
+		responseData["message"] = "Invitation created. Share the Magic Link with the user."
 	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"success": true,
 		"message": "Invitation created",
 		"data":    responseData,
+	})
+}
+
+// GenerateUserMagicLink creates a fresh single-use WhatsApp Magic Link for an existing team member
+// so they can log in immediately and set/reset their password without needing SMS OTP.
+func GenerateUserMagicLink(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id in token")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions")
+		return
+	}
+
+	var req struct {
+		UserID int `json:"user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID <= 0 {
+		respondWithError(w, http.StatusBadRequest, "Valid user_id is required")
+		return
+	}
+
+	var targetEmail, targetPhone, targetRole string
+	err = database.DB.QueryRow(`
+		SELECT COALESCE(u.email, ''), COALESCE(u.phone, ''), tu.role
+		FROM users u
+		JOIN tenant_users tu ON tu.user_id = u.id
+		WHERE u.id = $1 AND tu.tenant_id = $2
+	`, req.UserID, tenantID).Scan(&targetEmail, &targetPhone, &targetRole)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Team member not found in this tenant")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	recipientTarget := targetPhone
+	if recipientTarget == "" {
+		recipientTarget = targetEmail
+	}
+	token, err := GenerateSignedMagicToken(recipientTarget, nil)
+	if err != nil {
+		tokenBytes := make([]byte, 32)
+		rand.Read(tokenBytes)
+		token = hex.EncodeToString(tokenBytes)
+	}
+	expiresAt := time.Now().UTC().Add(48 * time.Hour)
+
+	var inviteID int
+	err = database.DB.QueryRow(`
+		INSERT INTO invitations (tenant_id, invited_by_user_id, email, phone, role, token, expires_at)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7)
+		RETURNING id
+	`, tenantID, user.UserID, targetEmail, targetPhone, targetRole, token, expiresAt).Scan(&inviteID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate magic login link")
+		return
+	}
+
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:4300"
+	}
+	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Magic login link generated",
+		"data": map[string]interface{}{
+			"invitation_id":    inviteID,
+			"token":            token,
+			"magic_login_link": magicLoginLink,
+			"phone":            targetPhone,
+			"email":            targetEmail,
+			"expires_at":       expiresAt,
+		},
 	})
 }
 
@@ -288,25 +389,33 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create user
+	// Get or create user by email or phone
 	inviteEmail := ""
 	if invite.Email.Valid {
-		inviteEmail = invite.Email.String
+		inviteEmail = strings.TrimSpace(invite.Email.String)
+	}
+	invitePhone := ""
+	if invite.Phone.Valid {
+		invitePhone = strings.TrimSpace(invite.Phone.String)
 	}
 
 	var userID int
-	err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", inviteEmail).Scan(&userID)
+	if invitePhone != "" {
+		err = database.DB.QueryRow("SELECT id FROM users WHERE phone = $1", invitePhone).Scan(&userID)
+	} else {
+		err = database.DB.QueryRow("SELECT id FROM users WHERE email = $1", inviteEmail).Scan(&userID)
+	}
 
 	if err == sql.ErrNoRows {
 		err = database.DB.QueryRow(`
-			INSERT INTO users (email, password_hash, full_name, is_active)
-			VALUES ($1, $2, $3, TRUE)
+			INSERT INTO users (email, phone, password_hash, full_name, is_active, must_set_password)
+			VALUES (NULLIF($1, ''), NULLIF($2, ''), $3, $4, TRUE, FALSE)
 			RETURNING id
-		`, inviteEmail, passwordHash, req.FullName).Scan(&userID)
+		`, inviteEmail, invitePhone, passwordHash, req.FullName).Scan(&userID)
 	} else if err == nil {
 		_, err = database.DB.Exec(`
 			UPDATE users
-			SET password_hash = $1, full_name = $2, is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+			SET password_hash = $1, full_name = $2, is_active = TRUE, must_set_password = FALSE, updated_at = CURRENT_TIMESTAMP
 			WHERE id = $3
 		`, passwordHash, req.FullName, userID)
 	}
@@ -347,7 +456,43 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateProfile lets a user update their own profile (name, etc.)
+// GetProfile returns the authenticated user's profile (including preferred_language and must_set_password)
+func GetProfile(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	var email, phone, fullName, preferredLanguage string
+	var mustSetPassword bool
+	var onboardingVersion int
+	err := database.DB.QueryRow(`
+		SELECT COALESCE(email, ''), COALESCE(phone, ''), COALESCE(full_name, ''), COALESCE(preferred_language, 'en'),
+		       COALESCE(must_set_password, FALSE), COALESCE(onboarding_version, 0)
+		FROM users
+		WHERE id = $1
+	`, user.UserID).Scan(&email, &phone, &fullName, &preferredLanguage, &mustSetPassword, &onboardingVersion)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load profile")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":            user.UserID,
+			"email":              email,
+			"phone":              phone,
+			"full_name":          fullName,
+			"preferred_language": preferredLanguage,
+			"must_set_password":  mustSetPassword,
+			"onboarding_version": onboardingVersion,
+		},
+	})
+}
+
+// UpdateProfile lets a user update their own profile (full_name and/or preferred_language)
 func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
 	if user == nil {
@@ -356,32 +501,77 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		FullName string `json:"full_name"`
+		FullName          *string `json:"full_name"`
+		PreferredLanguage *string `json:"preferred_language"`
+		OnboardingVersion *int    `json:"onboarding_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	fullName := strings.TrimSpace(req.FullName)
-	if fullName == "" {
-		respondWithError(w, http.StatusBadRequest, "Full name is required")
+	if req.FullName == nil && req.PreferredLanguage == nil && req.OnboardingVersion == nil {
+		respondWithError(w, http.StatusBadRequest, "At least one of full_name, preferred_language or onboarding_version is required")
 		return
 	}
 
-	_, err := database.DB.Exec(`
-		UPDATE users SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, fullName, user.UserID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update profile")
-		return
+	if req.OnboardingVersion != nil {
+		if *req.OnboardingVersion < 0 || *req.OnboardingVersion > 10000 {
+			respondWithError(w, http.StatusBadRequest, "Invalid onboarding_version")
+			return
+		}
+		// GREATEST() so an older client/device can never roll a user's tour progress backwards
+		if _, err := database.DB.Exec(`
+			UPDATE users SET onboarding_version = GREATEST(COALESCE(onboarding_version, 0), $1), updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, *req.OnboardingVersion, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update onboarding progress")
+			return
+		}
 	}
+
+	if req.FullName != nil {
+		fullName := strings.TrimSpace(*req.FullName)
+		if fullName == "" {
+			respondWithError(w, http.StatusBadRequest, "Full name cannot be empty")
+			return
+		}
+		if _, err := database.DB.Exec(`
+			UPDATE users SET full_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, fullName, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update full name")
+			return
+		}
+	}
+
+	if req.PreferredLanguage != nil {
+		lang := strings.ToLower(strings.TrimSpace(*req.PreferredLanguage))
+		if lang != "en" && lang != "ta" {
+			respondWithError(w, http.StatusBadRequest, "Unsupported language code (allowed: en, ta)")
+			return
+		}
+		if _, err := database.DB.Exec(`
+			UPDATE users SET preferred_language = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+		`, lang, user.UserID); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update preferred language")
+			return
+		}
+	}
+
+	var updatedFullName, updatedLang string
+	var updatedOnboardingVersion int
+	_ = database.DB.QueryRow(`
+		SELECT COALESCE(full_name, ''), COALESCE(preferred_language, 'en'), COALESCE(onboarding_version, 0)
+		FROM users
+		WHERE id = $1
+	`, user.UserID).Scan(&updatedFullName, &updatedLang, &updatedOnboardingVersion)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Profile updated",
 		"data": map[string]interface{}{
-			"full_name": fullName,
+			"full_name":          updatedFullName,
+			"preferred_language": updatedLang,
+			"onboarding_version": updatedOnboardingVersion,
 		},
 	})
 }
@@ -413,11 +603,12 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existingPasswordHash sql.NullString
+	var mustSetPassword bool
 	err := database.DB.QueryRow(`
-		SELECT password_hash
+		SELECT password_hash, COALESCE(must_set_password, FALSE)
 		FROM users
 		WHERE id = $1
-	`, user.UserID).Scan(&existingPasswordHash)
+	`, user.UserID).Scan(&existingPasswordHash, &mustSetPassword)
 	if err == sql.ErrNoRows {
 		respondWithError(w, http.StatusUnauthorized, "User not found")
 		return
@@ -427,7 +618,7 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existingPasswordHash.Valid && strings.TrimSpace(existingPasswordHash.String) != "" {
+	if !mustSetPassword && existingPasswordHash.Valid && strings.TrimSpace(existingPasswordHash.String) != "" {
 		if strings.TrimSpace(req.CurrentPassword) == "" {
 			respondWithError(w, http.StatusBadRequest, "Current password is required")
 			return
@@ -458,7 +649,7 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(`
 		UPDATE users
-		SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+		SET password_hash = $1, must_set_password = FALSE, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2
 	`, string(newPasswordHash), user.UserID)
 	if err != nil {

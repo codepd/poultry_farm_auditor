@@ -57,6 +57,7 @@ func main() {
 	apiRouter.HandleFunc("/auth/login", handlers.Login(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/send-otp", handlers.SendOTP(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/verify-otp", handlers.VerifyOTP(cfg)).Methods("POST")
+	apiRouter.HandleFunc("/auth/magic-login", handlers.MagicLinkLogin(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/refresh", handlers.RefreshToken(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/logout", handlers.Logout(cfg)).Methods("POST")
 	apiRouter.HandleFunc("/auth/country-codes", handlers.GetAllCountryCodes).Methods("GET")
@@ -107,11 +108,13 @@ func main() {
 
 	// User management routes
 	protectedRouter.HandleFunc("/users", handlers.GetUsers).Methods("GET")
+	protectedRouter.HandleFunc("/users/profile", handlers.GetProfile).Methods("GET")
 	protectedRouter.HandleFunc("/users/profile", handlers.UpdateProfile).Methods("PUT")
 	protectedRouter.HandleFunc("/users/change-password", handlers.ChangePassword).Methods("POST")
 	protectedRouter.HandleFunc("/users/logout-other-devices", handlers.LogoutOtherDevices).Methods("POST")
 	protectedRouter.HandleFunc("/users/invite", handlers.InviteUser).Methods("POST")
 	protectedRouter.HandleFunc("/users/invitations", handlers.GetInvitations).Methods("GET")
+	protectedRouter.HandleFunc("/users/magic-link", handlers.GenerateUserMagicLink).Methods("POST")
 
 	// Public invitation acceptance
 	apiRouter.HandleFunc("/users/accept-invite", handlers.AcceptInvite).Methods("POST")
@@ -131,6 +134,7 @@ func main() {
 	protectedRouter.HandleFunc("/analytics/date-range-summary", handlers.GetDateRangeSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/last-12-months", handlers.GetLast12MonthsSummary).Methods("GET")
 	protectedRouter.HandleFunc("/analytics/monthly-breakdown", handlers.GetMonthlyBreakdown).Methods("GET")
+	protectedRouter.HandleFunc("/analytics/latest-data-month", handlers.GetLatestDataMonth).Methods("GET")
 
 	// Price history routes
 	protectedRouter.HandleFunc("/prices", handlers.GetPriceHistory).Methods("GET")
