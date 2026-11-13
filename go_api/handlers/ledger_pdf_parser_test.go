@@ -64,3 +64,71 @@ func TestParseStatementLinesFullParity(t *testing.T) {
 		t.Fatalf("expected 2026-11 from filename, got %d-%d", y, m)
 	}
 }
+
+func TestParseOctober2026SakthiLedgerPatterns(t *testing.T) {
+	lines := []string{
+		"SAKTHI POULTRY FEEDS - FY 2026-27",
+		"Pradeep PF",
+		"Ledger Account",
+		"1-Oct-26 to 31-Oct-26",
+		"1-Oct-26 By Opening Balance 3,31,917.090",
+		"By Rate Difference Credit Note 151 32,682.000",
+		"By Rate Difference Credit Note 152 7,844.000",
+		"To Rate Difference Debit Note 1 33,200.000",
+		"To Poultry Feed Sales FEED SALES 1086 4,69,644.210",
+		"Sylo -L M 12,630.000 KGS 36.667/KGS 4,63,104.210",
+		"Feed",
+		"Supplements",
+		"6,540.000",
+		"10-Oct-26 To Cash Payment 2259 3,00,000.000",
+		"To Poultry Feed Sales FEED SALES 1119 4,67,963.200",
+		"Sylo -L M 9,440.000 KGS 35.067/KGS 3,31,032.480",
+		"Sylo - C M 3,160.000 KGS 41.467/KGS 1,31,035.720",
+		"31-Oct-26 By Purchase Eggs EGG PURCHASE 1862 2,24,167.500",
+		"Large Egg 40,500 NOS 5.535/NOS 2,24,167.500",
+		"By Poultry Feed Sales Credit Note 159 42,000.000",
+		"To TDS 194 Q Journal 604 5,531.000",
+		"To Closing Balance 7,77,638.360",
+	}
+
+	ps := parseStatementLines(lines)
+
+	if ps.OpeningBalance == nil || math.Abs(*ps.OpeningBalance-331917.09) > 0.01 {
+		t.Fatalf("expected opening balance 331917.09, got %v", ps.OpeningBalance)
+	}
+	if ps.ClosingBalance == nil || math.Abs(*ps.ClosingBalance-777638.36) > 0.01 {
+		t.Fatalf("expected closing balance 777638.36, got %v", ps.ClosingBalance)
+	}
+	if len(ps.Discounts) != 3 {
+		t.Fatalf("expected 3 credit-note discounts (32682, 7844, 42000), got %d: %+v", len(ps.Discounts), ps.Discounts)
+	}
+	if len(ps.Payments) != 1 || math.Abs(ps.Payments[0].Amount-300000.0) > 0.01 {
+		t.Fatalf("expected 1 payment of 300000, got %+v", ps.Payments)
+	}
+	if len(ps.TDSEntries) != 1 || math.Abs(ps.TDSEntries[0].Amount-5531.0) > 0.01 {
+		t.Fatalf("expected 1 TDS of 5531, got %+v", ps.TDSEntries)
+	}
+
+	var foundChickFeed, foundLayerFeed, foundSupp, foundDebitNote bool
+	for _, it := range ps.RawItems {
+		if it.Category == "feed" {
+			stage, _ := classifyFeedStage(it.ItemName)
+			if stage == "CHICK" && math.Abs(it.Amount-131035.72) < 0.01 {
+				foundChickFeed = true
+			}
+			if stage == "LAYER" {
+				foundLayerFeed = true
+			}
+		}
+		if it.Category == "medicine" && it.ItemName == "FEED SUPPLEMENTS" && math.Abs(it.Amount-6540.0) < 0.01 {
+			foundSupp = true
+		}
+		if it.ItemName == "RATE DIFFERENCE DEBIT NOTE" && math.Abs(it.Amount-33200.0) < 0.01 {
+			foundDebitNote = true
+		}
+	}
+	if !foundChickFeed || !foundLayerFeed || !foundSupp || !foundDebitNote {
+		t.Fatalf("missing expected parsed items: chick=%v layer=%v supp=%v debit=%v items=%+v",
+			foundChickFeed, foundLayerFeed, foundSupp, foundDebitNote, ps.RawItems)
+	}
+}
