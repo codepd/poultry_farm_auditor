@@ -83,7 +83,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
     setActivePreset(preset);
     if (preset === 'production') {
       // Flock + Rearing (Production Profit): Eggs + Discounts + Cull Hen Sales - Layer Feed - Rearing Feed - Meds
-      // Excludes fixed farm overheads (labor/EB/EMI) and TDS
+      // Excludes fixed farm overheads (labor/EB) and TDS
       setIncludeHenSales(true);
       setIncludeRearingFeed(true);
       setIncludeOverheads(false);
@@ -242,7 +242,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
           : null,
         `• *மருந்து செலவு:* ${formatCurrency(calcDetails.meds)}`,
         includeOverheads && calcDetails.overheads > 0
-          ? `• *பண்ணை செலவுகள் (சம்பளம்/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`
+          ? `• *பண்ணை செலவுகள் (சம்பளம்/EB):* ${formatCurrency(calcDetails.overheads)}`
           : null,
         includeTds && calcDetails.tds > 0 ? `• *TDS:* ${formatCurrency(calcDetails.tds)}` : null,
         `━━━━━━━━━━━━━━━━━━━━`,
@@ -269,7 +269,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
         : null,
       `• *Medicines:* ${formatCurrency(calcDetails.meds)}`,
       includeOverheads && calcDetails.overheads > 0
-        ? `• *Farm Overheads (Labor/EB/EMI):* ${formatCurrency(calcDetails.overheads)}`
+        ? `• *Farm Overheads (Labor/EB):* ${formatCurrency(calcDetails.overheads)}`
         : null,
       includeTds && calcDetails.tds > 0 ? `• *TDS:* ${formatCurrency(calcDetails.tds)}` : null,
       `━━━━━━━━━━━━━━━━━━━━`,

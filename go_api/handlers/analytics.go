@@ -453,7 +453,7 @@ func classifyFeedStage(itemName string) (stage string, stageLabel string) {
 	return "OTHER", "Other Feed"
 }
 
-// ensureDefaultMonthlyOverheads seeds default monthly Labor (80,000), Electricity (12,000), and EMI (2,90,000)
+// ensureDefaultMonthlyOverheads seeds default monthly Labor (80,000) and Electricity (12,000)
 // for a month if not yet entered manually, so users always see and can edit them in the Other Expenses modal.
 func ensureDefaultMonthlyOverheads(tenantID uuid.UUID, year, month int) {
 	if year < 2025 || month < 1 || month > 12 {
@@ -485,7 +485,6 @@ func ensureDefaultMonthlyOverheads(tenantID uuid.UUID, year, month int) {
 	}{
 		{"LABOR", "%LABOR%", 80000.00, "Default monthly labor cost (editable)"},
 		{"ELECTRICITY", "%ELECTRIC%", 12000.00, "Default monthly electricity cost (editable)"},
-		{"EMI", "%EMI%", 290000.00, "Default monthly farm EMI (editable)"},
 	}
 
 	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
@@ -2338,13 +2337,13 @@ func GetLast12MonthsSummary(w http.ResponseWriter, r *http.Request) {
 		totalTDS := acc.totalTDS
 		totalOtherIncome := acc.totalOtherIncome
 
-		// Apply default monthly overheads (Labor 80k, Electricity 12k, EMI 2.9L) for active months if not manually entered yet
+		// Apply default monthly overheads (Labor 80k, Electricity 12k) for active months if not manually entered yet
 		if sales > 0 || feedExpense > 0 {
 			if laborExpense == 0 {
 				laborExpense = 80000
 			}
 			if otherExpense == 0 {
-				otherExpense = 302000 // Electricity (12,000) + EMI (2,90,000)
+				otherExpense = 12000 // Electricity (12,000)
 			}
 		}
 
