@@ -336,6 +336,44 @@ func parseStatementLines(allLines []string) *parsedStatement {
 				}
 			}
 
+			// Handle dateless voucher headers on the same date (e.g. "By Rate Difference Credit Note 151 32,682.000",
+			// "To Rate Difference Debit Note 1 33,200.000", "By Poultry Feed Sales Credit Note 159 42,000.000", "To Closing Balance 7,77,638.360")
+			if strings.HasPrefix(nxtUpper, "BY ") || strings.HasPrefix(nxtUpper, "TO ") {
+				subAmt := extractHeaderAmount(nxtUpper)
+				handledDateless := false
+				switch {
+				case strings.Contains(nxtUpper, "CLOSING BALANCE") && subAmt != nil:
+					val := *subAmt
+					ps.ClosingBalance = &val
+					handledDateless = true
+				case strings.Contains(nxtUpper, "OPENING BALANCE") && subAmt != nil:
+					val := *subAmt
+					ps.OpeningBalance = &val
+					handledDateless = true
+				case (strings.Contains(nxtUpper, "CREDIT NOTE") || strings.Contains(nxtUpper, "DISCOUNT")) && subAmt != nil:
+					ps.Discounts = append(ps.Discounts, parsedLedgerAmountEntry{
+						Date: parsedDate, Amount: *subAmt, Raw: nxt,
+					})
+					handledDateless = true
+				case strings.Contains(nxtUpper, "DEBIT NOTE") && subAmt != nil:
+					ps.RawItems = append(ps.RawItems, parsedLedgerItem{
+						Date: parsedDate, TxnType: "debit_note", Category: "other",
+						ItemName: "RATE DIFFERENCE DEBIT NOTE", Amount: *subAmt, BillNo: lastBillNo,
+						ParsingNotes: "debit_note_header",
+					})
+					handledDateless = true
+				case (strings.Contains(nxtUpper, "CANARA BANK") || strings.Contains(nxtUpper, "PAYMENT") || strings.HasPrefix(nxtUpper, "TO CASH")) && subAmt != nil:
+					ps.Payments = append(ps.Payments, parsedLedgerAmountEntry{
+						Date: parsedDate, Amount: *subAmt, Raw: nxt,
+					})
+					handledDateless = true
+				}
+				if handledDateless {
+					j++
+					continue
+				}
+			}
+
 			if toTdsRe.MatchString(nxtUpper) || strings.HasPrefix(nxtUpper, "TO TDS") {
 				tokens := strings.Fields(nxt)
 				if _, amtTok := findLastAmountToken(tokens); amtTok != "" {
@@ -347,6 +385,7 @@ func parseStatementLines(allLines []string) *parsedStatement {
 				}
 			}
 
+			// Format A: "Feed 6,540.000" followed by "Supplements"
 			if sm := splitFeedRe.FindStringSubmatch(nxt); len(sm) == 2 && j+1 < len(allLines) {
 				nxt2 := strings.ToUpper(strings.TrimSpace(allLines[j+1]))
 				if strings.Contains(nxt2, "SUPPLEMENT") {
@@ -359,6 +398,23 @@ func parseStatementLines(allLines []string) *parsedStatement {
 					}
 					j += 2
 					continue
+				}
+			}
+
+			// Format B: "Feed" on line j, "Supplements" on line j+1, "6,540.000" on line j+2
+			if strings.EqualFold(nxt, "FEED") && j+2 < len(allLines) {
+				nxt2 := strings.ToUpper(strings.TrimSpace(allLines[j+1]))
+				nxt3 := strings.TrimSpace(allLines[j+2])
+				if strings.Contains(nxt2, "SUPPLEMENT") {
+					if suppAmt, ok := cleanLedgerNumber(nxt3); ok {
+						ps.RawItems = append(ps.RawItems, parsedLedgerItem{
+							Date: parsedDate, TxnType: txnType, Category: "medicine",
+							ItemName: "FEED SUPPLEMENTS", Amount: suppAmt, BillNo: lastBillNo,
+							ParsingNotes: "split_feed_supplement_3line",
+						})
+						j += 3
+						continue
+					}
 				}
 			}
 
