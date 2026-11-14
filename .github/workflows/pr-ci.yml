@@ -1,0 +1,57 @@
+name: PR CI - Go & React Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  go-api-tests:
+    name: Go API Tests & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go_api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go_api/go.mod
+          cache-dependency-path: go_api/go.sum
+
+      - name: Run Go unit tests
+        run: go test -v ./handlers ./middleware
+
+      - name: Build Go API binary
+        run: go build -o server .
+
+  react-frontend-tests:
+    name: React Jest Tests & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: react_frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: react_frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Jest QA test suites
+        run: npm test -- --watchAll=false --ci
+
+      - name: Build production bundle
+        run: npm run build
