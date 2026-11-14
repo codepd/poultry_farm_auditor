@@ -479,7 +479,10 @@ def test_pdf_upload_and_analytics(owner_token: str):
     assert st_sum == 200, f"GET enhanced-monthly-summary failed ({st_sum}): {sum_res}"
     raw_data = sum_res.get("data")
     sdata = raw_data[0] if isinstance(raw_data, list) and raw_data else (raw_data or {})
-    assert float(sdata.get("total_eggs_sold", 0)) >= 25000.0, f"Expected total_eggs_sold >= 25000, got {sdata.get('total_eggs_sold')}"
+    assert float(sdata.get("total_eggs_sold", 0)) >= 25000.0, (
+        f"Expected total_eggs_sold >= 25000, got {sdata.get('total_eggs_sold')} "
+        f"(upload_eggs={up_data.get('eggs')}, upload_summary={up_data.get('summary')}, sdata={sdata})"
+    )
     assert float(sdata.get("layer_feed_price", 0)) >= 102000.0, f"Expected layer_feed_price >= 102000, got {sdata.get('layer_feed_price')}"
     assert float(sdata.get("rearing_feed_price", 0)) >= 17000.0, f"Expected rearing_feed_price >= 17000, got {sdata.get('rearing_feed_price')}"
 
