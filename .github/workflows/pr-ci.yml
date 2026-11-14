@@ -55,3 +55,86 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+  functional-e2e-tests:
+    name: Functional E2E (Postgres + Go API)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: poultry_farm_test
+          POSTGRES_USER: poultry_admin
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U poultry_admin -d poultry_farm_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go_api/go.mod
+          cache-dependency-path: go_api/go.sum
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Initialize PostgreSQL schema
+        env:
+          PGPASSWORD: testpassword
+        run: |
+          grep -v -E '^\\(restrict|unrestrict)' database/schema.sql | \
+            psql -h localhost -p 5432 -U poultry_admin -d poultry_farm_test -v ON_ERROR_STOP=1
+
+      - name: Build and start Go API
+        working-directory: go_api
+        env:
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_NAME: poultry_farm_test
+          DB_USER: poultry_admin
+          DB_PASSWORD: testpassword
+          DB_SSLMODE: disable
+          API_PORT: "8080"
+          ADMIN_KEY: local-dev-admin-key
+          JWT_SECRET: ci-test-jwt-secret-key-at-least-32-chars
+          OTP_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+          SKIP_AWS_VAULT_FETCH: "true"
+        run: |
+          go build -o server .
+          nohup ./server > /tmp/go_api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/health >/dev/null; then
+              echo "Go API is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/go_api.log
+          exit 1
+
+      - name: Run API smoke regression
+        env:
+          REGRESSION_API_BASE: http://localhost:8080
+          REGRESSION_MODE: smoke
+        run: bash scripts/api-post-deploy-regression.sh
+
+      - name: Run full functional E2E suite
+        env:
+          API_BASE_URL: http://localhost:8080/api
+          QA_ADMIN_KEY: local-dev-admin-key
+        run: python3 scripts/qa_full_e2e.py
+
+      - name: Print Go API logs on failure
+        if: failure()
+        run: cat /tmp/go_api.log || true

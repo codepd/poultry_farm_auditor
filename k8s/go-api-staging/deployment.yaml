@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-api
+  namespace: poultry-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-api
+  template:
+    metadata:
+      labels:
+        app: go-api
+    spec:
+      containers:
+        - name: go-api
+          image: 155139664929.dkr.ecr.ap-south-1.amazonaws.com/poultry-dev-go-api:staging-latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          envFrom:
+            - secretRef:
+                name: poultry-db
+            - secretRef:
+                name: poultry-app
+          env:
+            - name: API_PORT
+              value: "8080"
+            - name: S3_DOCUMENTS_BUCKET
+              value: "kolipannai-staging-documents"
+            - name: AWS_REGION
+              value: "ap-south-1"
