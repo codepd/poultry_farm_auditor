@@ -17,7 +17,6 @@ jobs:
     name: Refresh Staging Data & Run E2E
     runs-on: ubuntu-latest
     environment: staging
-    if: ${{ vars.STAGING_ENABLED == 'true' && vars.STAGING_API_URL != '' }}
 
     steps:
       - name: Checkout
