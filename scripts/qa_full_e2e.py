@@ -103,13 +103,10 @@ def build_minimal_pdf(lines):
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
-    stream_cmds = ["BT", "/F1 10 Tf", "50 770 Td"]
+    stream_cmds = []
     for idx, line in enumerate(lines):
-        if idx == 0:
-            stream_cmds.append(f"({esc(line)}) Tj")
-        else:
-            stream_cmds.append(f"0 -14 Td ({esc(line)}) Tj")
-    stream_cmds.append("ET")
+        y = 770 - idx * 18
+        stream_cmds.append(f"BT /F1 10 Tf 1 0 0 1 50 {y} Tm ({esc(line)}) Tj ET")
     stream_data = "\n".join(stream_cmds).encode("latin-1")
 
     objects = [
