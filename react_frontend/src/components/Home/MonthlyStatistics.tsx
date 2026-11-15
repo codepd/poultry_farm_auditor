@@ -321,7 +321,13 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
             <button
               type="button"
               className="flock-alert-action-btn"
-              onClick={() => navigate('/hen-batches')}
+              onClick={() => {
+                const estimatedWeeks = alert.estimated_current_age_weeks || (isChick ? 6 : 12);
+                const estimatedDate = new Date();
+                estimatedDate.setDate(estimatedDate.getDate() - estimatedWeeks * 7);
+                const prefillDate = estimatedDate.toISOString().split('T')[0];
+                navigate(`/hen-batches?addBatch=1&date_added=${prefillDate}`);
+              }}
             >
               {t('alert.registerBatchBtn')}
             </button>
