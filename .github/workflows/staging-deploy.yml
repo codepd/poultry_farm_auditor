@@ -84,7 +84,10 @@ jobs:
         run: |
           npm ci
           npm run build
-          aws s3 sync build/ "s3://${{ vars.STAGING_FRONTEND_S3_BUCKET }}" --delete
+          aws s3 sync build/ "s3://${{ vars.STAGING_FRONTEND_S3_BUCKET }}" --delete \
+            --exclude "index.html" --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp build/index.html "s3://${{ vars.STAGING_FRONTEND_S3_BUCKET }}/index.html" \
+            --cache-control "no-cache, no-store, must-revalidate"
 
       - name: Invalidate staging CloudFront cache
         if: ${{ vars.STAGING_CLOUDFRONT_DISTRIBUTION_ID != '' }}
@@ -181,7 +184,10 @@ jobs:
           fi
           npm ci
           npm run build
-          aws s3 sync build/ "s3://${PROD_S3_BUCKET}" --delete
+          aws s3 sync build/ "s3://${PROD_S3_BUCKET}" --delete \
+            --exclude "index.html" --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp build/index.html "s3://${PROD_S3_BUCKET}/index.html" \
+            --cache-control "no-cache, no-store, must-revalidate"
           if [[ -n "${PROD_CF_ID:-}" ]]; then
             aws cloudfront create-invalidation --distribution-id "${PROD_CF_ID}" --paths "/*"
           fi
