@@ -364,7 +364,11 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
     });
 
     fireEvent.click(screen.getByText(/Go to Hen Batches/i));
-    expect(mockNavigate).toHaveBeenCalledWith('/hen-batches');
+    const expectedDate = new Date();
+    expectedDate.setDate(expectedDate.getDate() - 12 * 7);
+    expect(mockNavigate).toHaveBeenCalledWith(
+      `/hen-batches?addBatch=1&date_added=${expectedDate.toISOString().split('T')[0]}`
+    );
 
     fireEvent.click(screen.getByTestId('switch-ta'));
     await waitFor(() => {
