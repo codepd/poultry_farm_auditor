@@ -18,7 +18,7 @@ env:
 jobs:
   deploy-staging:
     name: 1. Deploy to Staging
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     outputs:
       image_uri: ${{ steps.image-meta.outputs.image_uri }}
@@ -26,10 +26,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
@@ -70,7 +70,7 @@ jobs:
 
       - name: Setup Node.js
         if: ${{ vars.STAGING_FRONTEND_S3_BUCKET != '' }}
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: '18'
           cache: 'npm'
@@ -96,15 +96,15 @@ jobs:
   staging-e2e:
     name: 2. Staging Functional E2E
     needs: deploy-staging
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -129,15 +129,15 @@ jobs:
   deploy-prod:
     name: 3. Deploy to Production
     needs: [deploy-staging, staging-e2e]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
@@ -162,7 +162,7 @@ jobs:
           kubectl -n "$K8S_NAMESPACE" rollout status deployment/go-api --timeout=180s
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: '18'
           cache: 'npm'
