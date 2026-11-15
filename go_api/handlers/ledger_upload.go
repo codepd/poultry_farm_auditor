@@ -334,7 +334,8 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	result, parseErr := runLedgerParser(stagedPath, fileType, tenantID, commit, inferredYear, inferredMonth)
 	updateDocumentUploadAfterParse(uploadID, tenantID, result, parseErr, commit)
 
-	if parseErr != nil && result == nil {
+	if parseErr != nil {
+		log.Printf("Ledger parse/commit error (upload_id=%d): %v", uploadID, parseErr)
 		respondWithError(w, http.StatusUnprocessableEntity, parseErr.Error())
 		return
 	}
@@ -532,7 +533,8 @@ func CommitDocumentUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, parseErr := runLedgerParser(stagedPath, "", tenantID, true, 0, 0)
 	updateDocumentUploadAfterParse(uploadID, tenantID, result, parseErr, true)
-	if parseErr != nil && result == nil {
+	if parseErr != nil {
+		log.Printf("Ledger parse/commit error (upload_id=%d): %v", uploadID, parseErr)
 		respondWithError(w, http.StatusUnprocessableEntity, parseErr.Error())
 		return
 	}

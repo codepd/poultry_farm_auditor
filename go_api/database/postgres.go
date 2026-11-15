@@ -116,6 +116,26 @@ func runMigrations() {
 		"CREATE INDEX IF NOT EXISTS idx_document_uploads_tenant_id ON document_uploads(tenant_id)",
 		"CREATE INDEX IF NOT EXISTS idx_document_uploads_status ON document_uploads(tenant_id, upload_status)",
 		"CREATE INDEX IF NOT EXISTS idx_document_uploads_period ON document_uploads(tenant_id, document_year, document_month)",
+		`CREATE TABLE IF NOT EXISTS tenant_country_codes (
+			id SERIAL PRIMARY KEY,
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			country_code VARCHAR(10) NOT NULL,
+			country_name VARCHAR(100) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(tenant_id, country_code)
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_tenant_country_codes_tenant_id ON tenant_country_codes(tenant_id)",
+		"ALTER TABLE ledger_parses ADD COLUMN IF NOT EXISTS account_holder TEXT",
+		"ALTER TABLE ledger_parses ADD COLUMN IF NOT EXISTS ledger_period TEXT",
+		`CREATE TABLE IF NOT EXISTS sensitive_data_config (
+			id SERIAL PRIMARY KEY,
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			data_type VARCHAR(100) NOT NULL,
+			is_sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(tenant_id, data_type)
+		)`,
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

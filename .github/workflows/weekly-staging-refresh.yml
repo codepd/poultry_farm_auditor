@@ -1,0 +1,51 @@
+name: Weekly Staging Test Data Refresh & E2E
+
+on:
+  schedule:
+    # Every Sunday at 06:00 UTC (11:30 AM IST)
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    inputs:
+      reset_db:
+        description: "Drop/recreate public tables and re-apply schema.sql before seeding (requires STAGING_DB_URL secret)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  refresh-and-verify:
+    name: Refresh Staging Data & Run E2E
+    runs-on: ubuntu-latest
+    environment: staging
+    if: ${{ vars.STAGING_ENABLED == 'true' && vars.STAGING_API_URL != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Reset staging PostgreSQL database (optional)
+        if: ${{ (github.event_name == 'schedule' || inputs.reset_db == true) && secrets.STAGING_DB_URL != '' }}
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: |
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+          grep -v -E '^\\(restrict|unrestrict)' database/schema.sql | \
+            psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1
+
+      - name: Seed synthetic data & run full E2E suite
+        env:
+          API_BASE_URL: ${{ vars.STAGING_API_URL }}/api
+          QA_ADMIN_KEY: ${{ secrets.QA_ADMIN_KEY }}
+          QA_TEST_PASSWORD: ${{ secrets.QA_TEST_PASSWORD }}
+        run: python3 scripts/qa_full_e2e.py
+
+      - name: Run API smoke regression
+        env:
+          REGRESSION_API_BASE: ${{ vars.STAGING_API_URL }}
+          REGRESSION_MODE: smoke
+        run: bash scripts/api-post-deploy-regression.sh

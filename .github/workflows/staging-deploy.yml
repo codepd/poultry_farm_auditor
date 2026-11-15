@@ -1,0 +1,125 @@
+name: Deploy to Staging & Run E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPO: poultry-dev-go-api
+  AWS_ACCOUNT_ID: "155139664929"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy-staging:
+    name: Deploy Backend & Frontend to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    if: ${{ vars.STAGING_ENABLED == 'true' }}
+    outputs:
+      image_uri: ${{ steps.image-meta.outputs.image_uri }}
+      image_tag: ${{ steps.image-meta.outputs.image_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: ${{ env.AWS_ACCOUNT_ID }}
+
+      - name: Determine image tag
+        id: image-meta
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE_URI="$REGISTRY/${{ env.ECR_REPO }}"
+          IMAGE_TAG="staging-${GITHUB_SHA::12}"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push staging Go API image
+        run: |
+          IMAGE_URI="${{ steps.image-meta.outputs.image_uri }}"
+          IMAGE_TAG="${{ steps.image-meta.outputs.image_tag }}"
+          docker build -t "$IMAGE_URI:$IMAGE_TAG" -f go_api/Dockerfile go_api
+          docker push "$IMAGE_URI:$IMAGE_TAG"
+          docker tag "$IMAGE_URI:$IMAGE_TAG" "$IMAGE_URI:staging-latest"
+          docker push "$IMAGE_URI:staging-latest"
+
+      - name: Deploy Go API to EKS staging namespace
+        env:
+          EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'kolipannai-dev-eks' }}
+          K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'poultry-staging' }}
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          kubectl -n "$K8S_NAMESPACE" set image deployment/go-api \
+            go-api="${{ steps.image-meta.outputs.image_uri }}:${{ steps.image-meta.outputs.image_tag }}"
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/go-api --timeout=180s
+
+      - name: Setup Node.js
+        if: ${{ vars.STAGING_FRONTEND_S3_BUCKET != '' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: react_frontend/package-lock.json
+
+      - name: Build & deploy React frontend to staging S3
+        if: ${{ vars.STAGING_FRONTEND_S3_BUCKET != '' }}
+        working-directory: react_frontend
+        env:
+          REACT_APP_API_URL: ${{ vars.STAGING_API_URL }}/api
+        run: |
+          npm ci
+          npm run build
+          aws s3 sync build/ "s3://${{ vars.STAGING_FRONTEND_S3_BUCKET }}" --delete
+
+      - name: Invalidate staging CloudFront cache
+        if: ${{ vars.STAGING_CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.STAGING_CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+  staging-e2e:
+    name: Staging Functional E2E Suite
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: staging
+    if: ${{ vars.STAGING_ENABLED == 'true' && vars.STAGING_API_URL != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run API smoke regression against staging
+        env:
+          REGRESSION_API_BASE: ${{ vars.STAGING_API_URL }}
+          REGRESSION_MODE: smoke
+        run: bash scripts/api-post-deploy-regression.sh
+
+      - name: Run full functional E2E suite against staging
+        if: ${{ secrets.QA_ADMIN_KEY != '' }}
+        env:
+          API_BASE_URL: ${{ vars.STAGING_API_URL }}/api
+          QA_ADMIN_KEY: ${{ secrets.QA_ADMIN_KEY }}
+          QA_TEST_PASSWORD: ${{ secrets.QA_TEST_PASSWORD }}
+        run: python3 scripts/qa_full_e2e.py
