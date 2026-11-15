@@ -8,8 +8,8 @@ metadata:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    # Replace with ACM certificate ARN for api-staging.mykolipannai.com (ap-south-1)
-    alb.ingress.kubernetes.io/certificate-arn: "REPLACE_WITH_STAGING_API_ACM_CERT_ARN"
+    # ACM certificate ARN for api-staging.mykolipannai.com (ap-south-1)
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:155139664929:certificate/7d9a3d75-b898-441a-88d9-edc79dfe8093"
     alb.ingress.kubernetes.io/healthcheck-path: /api/health
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
 spec:
