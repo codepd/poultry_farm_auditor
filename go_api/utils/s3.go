@@ -28,8 +28,10 @@ type AWSCredentials struct {
 }
 
 var (
-	cachedCreds     *AWSCredentials
-	cachedCredsLock sync.Mutex
+	cachedCreds         *AWSCredentials
+	cachedCredsErr      error
+	cachedCredsErrUntil time.Time
+	cachedCredsLock     sync.Mutex
 )
 
 // ResolveAWSCredentials resolves credentials from env vars, EKS/EC2 IMDSv2, or local AWS CLI SSO profile.
@@ -52,10 +54,14 @@ func ResolveAWSCredentials(profile string) (*AWSCredentials, error) {
 	if cachedCreds != nil && (cachedCreds.Expiration.IsZero() || time.Now().Add(2*time.Minute).Before(cachedCreds.Expiration)) {
 		return cachedCreds, nil
 	}
+	if cachedCredsErr != nil && time.Now().Before(cachedCredsErrUntil) {
+		return nil, cachedCredsErr
+	}
 
 	// 2. Try EC2 / EKS Worker Node Instance Metadata Service (IMDSv2)
 	if creds, err := fetchIMDSv2Credentials(); err == nil && creds.AccessKeyID != "" {
 		cachedCreds = creds
+		cachedCredsErr = nil
 		return creds, nil
 	}
 
@@ -65,14 +71,17 @@ func ResolveAWSCredentials(profile string) (*AWSCredentials, error) {
 	}
 	if creds, err := fetchCLICredentials(profile); err == nil && creds.AccessKeyID != "" {
 		cachedCreds = creds
+		cachedCredsErr = nil
 		return creds, nil
 	}
 
-	return nil, fmt.Errorf("unable to resolve AWS credentials from environment, IMDSv2, or AWS CLI profile %q", profile)
+	cachedCredsErr = fmt.Errorf("unable to resolve AWS credentials from environment, IMDSv2, or AWS CLI profile %q", profile)
+	cachedCredsErrUntil = time.Now().Add(30 * time.Second)
+	return nil, cachedCredsErr
 }
 
 func fetchIMDSv2Credentials() (*AWSCredentials, error) {
-	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	client := &http.Client{Timeout: 500 * time.Millisecond}
 	tokenReq, err := http.NewRequest("PUT", "http://169.254.169.254/latest/api/token", nil)
 	if err != nil {
 		return nil, err
@@ -261,6 +270,14 @@ func S3PresignGetURL(bucket, region, profile, key string, expires time.Duration)
 	creds, err := ResolveAWSCredentials(profile)
 	if err != nil {
 		return "", err
+	}
+	return S3PresignGetURLWithCreds(creds, bucket, region, key, expires)
+}
+
+// S3PresignGetURLWithCreds generates a SigV4 presigned GET URL using already-resolved AWS credentials.
+func S3PresignGetURLWithCreds(creds *AWSCredentials, bucket, region, key string, expires time.Duration) (string, error) {
+	if creds == nil || creds.AccessKeyID == "" || creds.SecretAccessKey == "" {
+		return "", fmt.Errorf("missing AWS credentials for presigning")
 	}
 	if region == "" {
 		region = "ap-south-1"

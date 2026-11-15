@@ -475,7 +475,7 @@ describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vaul
       expect(screen.getByText('FEED_RATE_CARD_2025.jpg')).toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText(/Search file name or S3 key/i);
+    const searchInput = screen.getByPlaceholderText(/Search by file name/i);
     fireEvent.change(searchInput, { target: { value: 'SAKTHI' } });
 
     expect(screen.getByText('SEP_2026_SAKTHI.pdf')).toBeInTheDocument();
