@@ -29,10 +29,14 @@ jobs:
           python-version: '3.11'
 
       - name: Reset staging PostgreSQL database (optional)
-        if: ${{ (github.event_name == 'schedule' || inputs.reset_db == true) && secrets.STAGING_DB_URL != '' }}
+        if: ${{ github.event_name == 'schedule' || inputs.reset_db == true }}
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
         run: |
+          if [[ -z "${STAGING_DB_URL:-}" ]]; then
+            echo "STAGING_DB_URL secret not set; skipping schema reset"
+            exit 0
+          fi
           psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
           grep -v -E '^\\(restrict|unrestrict)' database/schema.sql | \
             psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1

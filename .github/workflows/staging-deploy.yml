@@ -1,4 +1,4 @@
-name: Deploy to Staging & Run E2E
+name: Deploy to Staging, Run E2E, then Deploy Prod
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   deploy-staging:
-    name: Deploy Backend & Frontend to Staging
+    name: 1. Deploy to Staging
     runs-on: ubuntu-latest
     environment: staging
     if: ${{ vars.STAGING_ENABLED == 'true' }}
@@ -95,7 +95,7 @@ jobs:
             --paths "/*"
 
   staging-e2e:
-    name: Staging Functional E2E Suite
+    name: 2. Staging Functional E2E
     needs: deploy-staging
     runs-on: ubuntu-latest
     environment: staging
@@ -117,9 +117,79 @@ jobs:
         run: bash scripts/api-post-deploy-regression.sh
 
       - name: Run full functional E2E suite against staging
-        if: ${{ secrets.QA_ADMIN_KEY != '' }}
         env:
           API_BASE_URL: ${{ vars.STAGING_API_URL }}/api
           QA_ADMIN_KEY: ${{ secrets.QA_ADMIN_KEY }}
           QA_TEST_PASSWORD: ${{ secrets.QA_TEST_PASSWORD }}
-        run: python3 scripts/qa_full_e2e.py
+        run: |
+          if [[ -z "${QA_ADMIN_KEY:-}" ]]; then
+            echo "QA_ADMIN_KEY secret not set; skipping qa_full_e2e.py"
+            exit 0
+          fi
+          python3 scripts/qa_full_e2e.py
+
+  deploy-prod:
+    name: 3. Deploy to Production
+    needs: [deploy-staging, staging-e2e]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: ${{ env.AWS_ACCOUNT_ID }}
+
+      - name: Promote verified Go API image to Production EKS
+        env:
+          IMAGE_URI: ${{ needs.deploy-staging.outputs.image_uri }}
+          IMAGE_TAG: ${{ needs.deploy-staging.outputs.image_tag }}
+          EKS_CLUSTER_NAME: ${{ vars.PROD_EKS_CLUSTER_NAME || 'kolipannai-dev-eks' }}
+          K8S_NAMESPACE: ${{ vars.PROD_K8S_NAMESPACE || 'poultry-dev' }}
+        run: |
+          docker pull "$IMAGE_URI:$IMAGE_TAG"
+          docker tag "$IMAGE_URI:$IMAGE_TAG" "$IMAGE_URI:latest"
+          docker push "$IMAGE_URI:latest"
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          kubectl -n "$K8S_NAMESPACE" set image deployment/go-api go-api="$IMAGE_URI:$IMAGE_TAG"
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/go-api --timeout=180s
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: react_frontend/package-lock.json
+
+      - name: Build & deploy React frontend to Production S3
+        working-directory: react_frontend
+        env:
+          REACT_APP_API_URL: https://api-dev.mykolipannai.com/api
+          PROD_S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
+          PROD_CF_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [[ -z "${PROD_S3_BUCKET:-}" ]]; then
+            echo "FRONTEND_S3_BUCKET secret not set; skipping prod frontend deploy"
+            exit 0
+          fi
+          npm ci
+          npm run build
+          aws s3 sync build/ "s3://${PROD_S3_BUCKET}" --delete
+          if [[ -n "${PROD_CF_ID:-}" ]]; then
+            aws cloudfront create-invalidation --distribution-id "${PROD_CF_ID}" --paths "/*"
+          fi
+
+      - name: Run read-only Production smoke check
+        env:
+          REGRESSION_API_BASE: https://api-dev.mykolipannai.com
+          REGRESSION_MODE: smoke
+        run: bash scripts/api-post-deploy-regression.sh
