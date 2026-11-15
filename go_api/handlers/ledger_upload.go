@@ -211,11 +211,14 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Load()
 	s3Key := buildS3DocumentKey(tenantID.String(), fileType, header.Filename, inferredYear)
 
-	// Save local staged copy for parser / fallback
+	// Save local staged copy for parser / fallback (fall back to os.TempDir if configured UploadPath is not writable)
 	uploadDir := filepath.Join(cfg.UploadPath, "staged", tenantID.String())
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to initialize staging directory")
-		return
+		uploadDir = filepath.Join(os.TempDir(), "poultry-uploads", "staged", tenantID.String())
+		if err2 := os.MkdirAll(uploadDir, 0755); err2 != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to initialize staging directory")
+			return
+		}
 	}
 	stagedPath := filepath.Join(uploadDir, fmt.Sprintf("%s_%s", sha256HexStr[:10], filepath.Base(header.Filename)))
 	if err := os.WriteFile(stagedPath, fileBytes, 0644); err != nil {
