@@ -97,6 +97,28 @@ def main():
         f"alerts={len(sep_row.get('flock_alerts') or [])}"
     )
 
+    # Test Price History: unfiltered /prices must include transaction-derived EGG monthly averages
+    status, all_prices_resp = api_request("GET", "/prices", token=token)
+    assert status == 200 and all_prices_resp.get("success") is True, f"GET /prices failed: {all_prices_resp}"
+    status, egg_prices_resp = api_request("GET", "/prices?price_type=EGG", token=token)
+    assert status == 200 and egg_prices_resp.get("success") is True, f"GET /prices?price_type=EGG failed: {egg_prices_resp}"
+    all_egg_dates = {
+        (p.get("price_date") or "")[:7]
+        for p in (all_prices_resp.get("data") or [])
+        if p.get("price_type") == "EGG"
+    }
+    egg_only_dates = {
+        (p.get("price_date") or "")[:7]
+        for p in (egg_prices_resp.get("data") or [])
+    }
+    assert egg_only_dates.issubset(all_egg_dates), (
+        f"GET /prices missing EGG months returned by /prices?price_type=EGG: "
+        f"{sorted(egg_only_dates - all_egg_dates)}"
+    )
+    if (sep_row.get("total_eggs_sold") or 0) > 0:
+        assert "2026-09" in all_egg_dates, f"Missing 2026-09 egg price in GET /prices: {sorted(all_egg_dates)}"
+    print(f"  ✓ GET /api/prices & /api/prices?price_type=EGG -> {len(all_egg_dates)} EGG months consistent")
+
     # Test S3 Document Audit Vault
     status, uploads_resp = api_request("GET", "/admin/uploads", token=token)
     assert status == 200 and uploads_resp.get("success") is True, f"GET /admin/uploads failed: {uploads_resp}"
