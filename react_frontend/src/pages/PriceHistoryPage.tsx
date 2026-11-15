@@ -74,8 +74,13 @@ const PriceHistoryPage: React.FC = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await api.get<{ success: boolean; data: PriceHistory[] | null }>('/prices');
-      setPrices(Array.isArray(response.data.data) ? response.data.data : []);
+      const [eggRes, feedRes] = await Promise.all([
+        api.get<{ success: boolean; data: PriceHistory[] | null }>('/prices?price_type=EGG'),
+        api.get<{ success: boolean; data: PriceHistory[] | null }>('/prices?price_type=FEED'),
+      ]);
+      const eggData = Array.isArray(eggRes.data.data) ? eggRes.data.data : [];
+      const feedData = Array.isArray(feedRes.data.data) ? feedRes.data.data : [];
+      setPrices([...eggData, ...feedData]);
     } catch (err: any) {
       setError('Failed to load price history');
       console.error(err);

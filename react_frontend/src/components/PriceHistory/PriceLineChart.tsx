@@ -302,22 +302,22 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
   //   new Set(processedPrices.map(p => new Date(p.price_date).getFullYear()))
   // ).sort((a, b) => b - a); // Most recent first
 
-  // Color palette for different items
+  // High-contrast color palette for distinct item/year lines
   const itemColors = [
-    '#667eea', // Purple
-    '#f093fb', // Pink
-    '#4facfe', // Blue
-    '#43e97b', // Green
-    '#fa709a', // Rose
-    '#fee140', // Yellow
-    '#30cfd0', // Cyan
-    '#a8edea', // Light Cyan
-    '#ff9a9e', // Light Pink
-    '#fecfef', // Light Purple
+    '#667eea', // Indigo
+    '#f59e0b', // Amber
+    '#10b981', // Emerald
+    '#ef4444', // Red
+    '#06b6d4', // Cyan
+    '#ec4899', // Pink
+    '#8b5cf6', // Violet
+    '#84cc16', // Lime
+    '#f97316', // Orange
+    '#14b8a6', // Teal
   ];
 
-  // Year line styles for year-on-year comparison
-  const yearLineStyles = ['solid', 'dashed', 'dotted', '5 5', '10 5'];
+  // Valid SVG strokeDasharray patterns for year-on-year comparison
+  const yearLineStyles = ['0', '6 4', '2 4', '8 4 2 4', '10 5'];
 
   let chartData: any[] = [];
   let linesToRender: any[] = [];
@@ -452,12 +452,14 @@ const PriceLineChart: React.FC<PriceLineChartProps> = ({
       return a.localeCompare(b);
     });
 
-    itemNames.forEach((itemName, itemIndex) => {
+    let colorIndex = 0;
+    itemNames.forEach((itemName) => {
       selectedYears.forEach((year, yearIndex) => {
         const yearMap = itemYearMonthMap.get(itemName);
         if (yearMap && yearMap.has(year)) {
           const dataKey = `${itemName} (${year})`;
-          const color = itemColors[itemIndex % itemColors.length];
+          const color = itemColors[colorIndex % itemColors.length];
+          colorIndex += 1;
           const strokeDasharray = yearLineStyles[yearIndex % yearLineStyles.length];
 
           linesToRender.push({
