@@ -1,17 +1,41 @@
 #!/usr/bin/env bash
-# Combined FE+BE deployment status check for dev environment.
+# Combined FE+BE deployment status check for prod (default) or staging.
 # Usage:
 #   bash scripts/check-fe-be-deploy-status.sh
-#   AWS_PROFILE=AdminAccess-Pradeep bash scripts/check-fe-be-deploy-status.sh
-#   CLOUDFRONT_DISTRIBUTION_ID=E123... bash scripts/check-fe-be-deploy-status.sh
+#   bash scripts/check-fe-be-deploy-status.sh --env staging
+#   DEPLOY_ENV=staging bash scripts/check-fe-be-deploy-status.sh
 
 set -u
 
+DEPLOY_ENV="${DEPLOY_ENV:-prod}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env|-e)
+      DEPLOY_ENV="${2:-prod}"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
 PROFILE="${AWS_PROFILE:-AdminAccess-Pradeep}"
-CLOUDFRONT_DISTRIBUTION_ID="${CLOUDFRONT_DISTRIBUTION_ID:-E2TLR40Y95CSC6}"
-API_BASE="${API_BASE:-https://api-dev.mykolipannai.com}"
-K8S_NAMESPACE="${K8S_NAMESPACE:-poultry-dev}"
 K8S_DEPLOYMENT="${K8S_DEPLOYMENT:-go-api}"
+
+if [[ "$DEPLOY_ENV" == "staging" ]]; then
+  CLOUDFRONT_DISTRIBUTION_ID="${CLOUDFRONT_DISTRIBUTION_ID:-E2NM4WGGES128L}"
+  FRONTEND_URL="${FRONTEND_URL:-https://staging.mykolipannai.com}"
+  S3_BUCKET="${S3_BUCKET:-app-staging.mykolipannai.com-frontend}"
+  API_BASE="${API_BASE:-https://api-staging.mykolipannai.com}"
+  K8S_NAMESPACE="${K8S_NAMESPACE:-poultry-staging}"
+else
+  CLOUDFRONT_DISTRIBUTION_ID="${CLOUDFRONT_DISTRIBUTION_ID:-E2TLR40Y95CSC6}"
+  FRONTEND_URL="${FRONTEND_URL:-https://mykolipannai.com}"
+  S3_BUCKET="${S3_BUCKET:-app-dev.mykolipannai.com-frontend}"
+  API_BASE="${API_BASE:-https://api-dev.mykolipannai.com}"
+  K8S_NAMESPACE="${K8S_NAMESPACE:-poultry-dev}"
+fi
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -43,10 +67,10 @@ check_cmd() {
 
 print_header() {
   echo "===================================================="
-  echo " FE + BE Deployment Status Check (dev)"
+  echo " FE + BE Deployment Status Check ($DEPLOY_ENV)"
   echo "===================================================="
   echo "AWS_PROFILE: $PROFILE"
-  echo "CloudFront Distribution: $CLOUDFRONT_DISTRIBUTION_ID"
+  echo "Frontend: $FRONTEND_URL (S3: $S3_BUCKET, CF: $CLOUDFRONT_DISTRIBUTION_ID)"
   echo "API Base: $API_BASE"
   echo "K8s: namespace=$K8S_NAMESPACE deployment=$K8S_DEPLOYMENT"
   echo ""
@@ -132,6 +156,17 @@ check_cloudfront() {
     pass "CloudFront invalidation completed"
   else
     warn "CloudFront invalidation status is $status"
+  fi
+
+  local s3_js live_js
+  s3_js=$(aws s3 ls "s3://$S3_BUCKET/static/js/" --profile "$PROFILE" 2>/dev/null | grep -oE 'main\.[a-f0-9]+\.js' | head -n 1 || true)
+  live_js=$(curl -sS "$FRONTEND_URL/" 2>/dev/null | grep -oE 'main\.[a-f0-9]+\.js' | head -n 1 || true)
+  echo "S3 JS bundle:   ${s3_js:-unknown}"
+  echo "Live JS bundle: ${live_js:-unknown}"
+  if [[ -n "$s3_js" && "$s3_js" == "$live_js" ]]; then
+    pass "Live frontend bundle matches S3 ($live_js)"
+  else
+    warn "Live frontend bundle (${live_js:-none}) does not match S3 (${s3_js:-none})"
   fi
 }
 
@@ -234,9 +269,8 @@ main() {
 
   print_section "GitHub Actions"
   if check_cmd jq; then
-    check_latest_workflow "fe-s3-deploy.yml" "Frontend deploy"
-    check_latest_workflow "be-ecr-build.yml" "Backend image build"
-    check_latest_workflow "api-post-deploy-regression.yml" "Backend post-deploy regression"
+    check_latest_workflow "staging-deploy.yml" "Staging + E2E + Prod deploy"
+    check_latest_workflow "pr-ci.yml" "PR CI (Go, React, Functional E2E)"
   else
     warn "jq not installed; install jq to parse workflow output"
   fi
