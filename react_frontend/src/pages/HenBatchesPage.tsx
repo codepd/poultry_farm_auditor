@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { henBatchesAPI, HenBatch, HenBatchSale } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -48,10 +49,29 @@ const HenBatchesPage: React.FC = () => {
 
   // Check if user has permission to manage batches (OWNER, CO_OWNER, ADMIN, MANAGER)
   const canAddBatch = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchBatches();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    if (params.get('addBatch') === '1' && canAddBatch) {
+      const prefillDate = params.get('date_added');
+      setEditingBatch(null);
+      setShowAddForm(true);
+      if (prefillDate && /^\d{4}-\d{2}-\d{2}$/.test(prefillDate)) {
+        setFormData((prev) => ({
+          ...prev,
+          date_added: prefillDate,
+          age_weeks: 0,
+          age_days: 0,
+        }));
+      }
+    }
+  }, [location.search, canAddBatch]);
 
   const fetchBatches = async () => {
     try {
@@ -94,6 +114,9 @@ const HenBatchesPage: React.FC = () => {
       } else {
         await henBatchesAPI.createHenBatch(formData);
         setShowAddForm(false);
+        if (new URLSearchParams(location.search || '').has('addBatch')) {
+          navigate('/hen-batches', { replace: true });
+        }
       }
       setFormData({
         batch_name: '',
