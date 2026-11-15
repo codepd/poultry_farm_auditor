@@ -45,229 +45,285 @@ func GetPriceHistory(w http.ResponseWriter, r *http.Request) {
 
 	var prices []PriceHistory
 
-	// If price_type is EGG, fetch monthly averages from transactions
-	if priceType == "EGG" {
-		// Build query to calculate monthly average prices from transactions
-		query := `
-			SELECT 
-				EXTRACT(YEAR FROM transaction_date)::INTEGER as year,
-				EXTRACT(MONTH FROM transaction_date)::INTEGER as month,
-				item_name,
-				SUM(amount) as total_amount,
-				SUM(quantity) as total_quantity,
-				CASE 
-					WHEN SUM(quantity) > 0 THEN SUM(amount) / SUM(quantity)
-					ELSE 0
-				END as average_price
-			FROM transactions
-			WHERE tenant_id = $1
-				AND category = 'EGG'
-				AND transaction_type = 'SALE'
-				AND quantity IS NOT NULL
-				AND quantity > 0
-		`
-		args := []interface{}{tenantID}
-		argIndex := 2
-
-		if itemName != "" {
-			query += ` AND item_name = $` + strconv.Itoa(argIndex)
-			args = append(args, itemName)
-			argIndex++
-		}
-
-		if startDate != "" {
-			query += ` AND transaction_date >= $` + strconv.Itoa(argIndex)
-			args = append(args, startDate)
-			argIndex++
-		}
-
-		if endDate != "" {
-			query += ` AND transaction_date <= $` + strconv.Itoa(argIndex)
-			args = append(args, endDate)
-			argIndex++
-		}
-
-		query += `
-			GROUP BY EXTRACT(YEAR FROM transaction_date), EXTRACT(MONTH FROM transaction_date), item_name
-			ORDER BY year DESC, month DESC, item_name
-		`
-
-		rows, err := database.DB.Query(query, args...)
+	switch priceType {
+	case "EGG":
+		txEggPrices, err := fetchEggPricesFromTransactions(tenantID, itemName, startDate, endDate)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to fetch monthly average egg prices")
 			return
 		}
-		defer rows.Close()
-
-		// Map to store prices by month and item
-		type MonthKey struct {
-			Year  int
-			Month int
-		}
-		priceMap := make(map[MonthKey]map[string]float64) // month -> item_name -> price
-
-		for rows.Next() {
-			var year, month int
-			var itemName string
-			var totalAmount, totalQuantity, averagePrice sql.NullFloat64
-
-			err := rows.Scan(&year, &month, &itemName, &totalAmount, &totalQuantity, &averagePrice)
-			if err != nil {
-				continue
-			}
-
-			if averagePrice.Valid {
-				key := MonthKey{Year: year, Month: month}
-				if priceMap[key] == nil {
-					priceMap[key] = make(map[string]float64)
-				}
-				priceMap[key][itemName] = averagePrice.Float64
-			}
-		}
-
-		// Helper function to check if item name matches egg type
-		matchesEggType := func(itemName, eggType string) bool {
-			normalized := strings.ToUpper(strings.TrimSpace(itemName))
-			return strings.Contains(normalized, eggType) && strings.Contains(normalized, "EGG")
-		}
-
-		// Convert map to slice and fill missing Medium/Small prices
-		for monthKey, itemPrices := range priceMap {
-			// Find Large egg price
-			var largePrice float64
-			hasLarge := false
-			for itemName, price := range itemPrices {
-				if matchesEggType(itemName, "LARGE") {
-					largePrice = price
-					hasLarge = true
-					break
-				}
-			}
-
-			// Add all existing prices
-			for itemName, price := range itemPrices {
-				priceHistory := PriceHistory{
-					ID:        0, // Calculated price
-					TenantID:  tenantID.String(),
-					PriceType: "EGG",
-					ItemName:  itemName,
-					PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
-					Price:     price,
-					CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
-				}
-				prices = append(prices, priceHistory)
-			}
-
-			// Fill missing Medium and Small prices if Large exists
-			if hasLarge {
-				// Check if Medium and Small eggs exist
-				hasMedium := false
-				hasSmall := false
-				for itemName := range itemPrices {
-					if matchesEggType(itemName, "MEDIUM") {
-						hasMedium = true
-					}
-					if matchesEggType(itemName, "SMALL") {
-						hasSmall = true
-					}
-				}
-
-				// Add Medium egg if missing (Large - 0.10)
-				if !hasMedium {
-					priceHistory := PriceHistory{
-						ID:        0, // Calculated price
-						TenantID:  tenantID.String(),
-						PriceType: "EGG",
-						ItemName:  "MEDIUM EGG",
-						PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
-						Price:     largePrice - 0.10,
-						CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
-					}
-					prices = append(prices, priceHistory)
-				}
-
-				// Add Small egg if missing (Large - 0.15)
-				if !hasSmall {
-					priceHistory := PriceHistory{
-						ID:        0, // Calculated price
-						TenantID:  tenantID.String(),
-						PriceType: "EGG",
-						ItemName:  "SMALL EGG",
-						PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
-						Price:     largePrice - 0.15,
-						CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
-					}
-					prices = append(prices, priceHistory)
-				}
-			}
-		}
-	} else {
-		// For FEED or no filter, fetch from price_history table
-		query := `
-			SELECT id, tenant_id, price_date, price_type, item_name, price, created_at
-			FROM price_history
-			WHERE tenant_id = $1
-		`
-		args := []interface{}{tenantID}
-		argIndex := 2
-
-		if priceType != "" {
-			query += ` AND price_type = $` + strconv.Itoa(argIndex)
-			args = append(args, priceType)
-			argIndex++
-		}
-
-		if itemName != "" {
-			query += ` AND item_name = $` + strconv.Itoa(argIndex)
-			args = append(args, itemName)
-			argIndex++
-		}
-
-		if startDate != "" {
-			query += ` AND price_date >= $` + strconv.Itoa(argIndex)
-			args = append(args, startDate)
-			argIndex++
-		}
-
-		if endDate != "" {
-			query += ` AND price_date <= $` + strconv.Itoa(argIndex)
-			args = append(args, endDate)
-			argIndex++
-		}
-
-		query += ` ORDER BY price_date DESC, item_name`
-
-		rows, err := database.DB.Query(query, args...)
+		storedEggPrices, err := fetchStoredPrices(tenantID, "EGG", itemName, startDate, endDate)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to fetch price history")
 			return
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var price PriceHistory
-			var createdAt sql.NullTime
-
-			err := rows.Scan(
-				&price.ID, &price.TenantID, &price.PriceDate,
-				&price.PriceType, &price.ItemName, &price.Price, &createdAt,
-			)
-			if err != nil {
-				continue
-			}
-
-			if createdAt.Valid {
-				price.CreatedAt = createdAt.Time.Format("2006-01-02T15:04:05Z")
-			}
-
-			prices = append(prices, price)
+		prices = mergeEggPrices(txEggPrices, storedEggPrices)
+	case "":
+		txEggPrices, err := fetchEggPricesFromTransactions(tenantID, itemName, startDate, endDate)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch monthly average egg prices")
+			return
 		}
+		storedPrices, err := fetchStoredPrices(tenantID, "", itemName, startDate, endDate)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch price history")
+			return
+		}
+		var storedEggPrices, otherStoredPrices []PriceHistory
+		for _, p := range storedPrices {
+			if p.PriceType == "EGG" {
+				storedEggPrices = append(storedEggPrices, p)
+			} else {
+				otherStoredPrices = append(otherStoredPrices, p)
+			}
+		}
+		prices = append(mergeEggPrices(txEggPrices, storedEggPrices), otherStoredPrices...)
+	default:
+		storedPrices, err := fetchStoredPrices(tenantID, priceType, itemName, startDate, endDate)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch price history")
+			return
+		}
+		prices = storedPrices
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data":    prices,
 	})
+}
+
+// mergeEggPrices prefers transaction-derived monthly averages per (YYYY-MM, item_name)
+// and falls back to stored price_history EGG rows for months without transaction data.
+func mergeEggPrices(txPrices, storedPrices []PriceHistory) []PriceHistory {
+	seen := make(map[string]bool, len(txPrices))
+	merged := make([]PriceHistory, 0, len(txPrices)+len(storedPrices))
+
+	eggKey := func(p PriceHistory) string {
+		ym := p.PriceDate
+		if len(ym) >= 7 {
+			ym = ym[:7]
+		}
+		return ym + "|" + strings.ToUpper(strings.TrimSpace(p.ItemName))
+	}
+
+	for _, p := range txPrices {
+		seen[eggKey(p)] = true
+		merged = append(merged, p)
+	}
+	for _, p := range storedPrices {
+		if !seen[eggKey(p)] {
+			merged = append(merged, p)
+		}
+	}
+	return merged
+}
+
+func fetchEggPricesFromTransactions(tenantID uuid.UUID, itemName, startDate, endDate string) ([]PriceHistory, error) {
+	query := `
+		SELECT 
+			EXTRACT(YEAR FROM transaction_date)::INTEGER as year,
+			EXTRACT(MONTH FROM transaction_date)::INTEGER as month,
+			item_name,
+			SUM(amount) as total_amount,
+			SUM(quantity) as total_quantity,
+			CASE 
+				WHEN SUM(quantity) > 0 THEN SUM(amount) / SUM(quantity)
+				ELSE 0
+			END as average_price
+		FROM transactions
+		WHERE tenant_id = $1
+			AND category = 'EGG'
+			AND transaction_type = 'SALE'
+			AND quantity IS NOT NULL
+			AND quantity > 0
+	`
+	args := []interface{}{tenantID}
+	argIndex := 2
+
+	if itemName != "" {
+		query += ` AND item_name = $` + strconv.Itoa(argIndex)
+		args = append(args, itemName)
+		argIndex++
+	}
+
+	if startDate != "" {
+		query += ` AND transaction_date >= $` + strconv.Itoa(argIndex)
+		args = append(args, startDate)
+		argIndex++
+	}
+
+	if endDate != "" {
+		query += ` AND transaction_date <= $` + strconv.Itoa(argIndex)
+		args = append(args, endDate)
+		argIndex++
+	}
+
+	query += `
+		GROUP BY EXTRACT(YEAR FROM transaction_date), EXTRACT(MONTH FROM transaction_date), item_name
+		ORDER BY year DESC, month DESC, item_name
+	`
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type MonthKey struct {
+		Year  int
+		Month int
+	}
+	priceMap := make(map[MonthKey]map[string]float64)
+
+	for rows.Next() {
+		var year, month int
+		var item string
+		var totalAmount, totalQuantity, averagePrice sql.NullFloat64
+
+		if err := rows.Scan(&year, &month, &item, &totalAmount, &totalQuantity, &averagePrice); err != nil {
+			continue
+		}
+
+		if averagePrice.Valid {
+			key := MonthKey{Year: year, Month: month}
+			if priceMap[key] == nil {
+				priceMap[key] = make(map[string]float64)
+			}
+			priceMap[key][item] = averagePrice.Float64
+		}
+	}
+
+	matchesEggType := func(item, eggType string) bool {
+		normalized := strings.ToUpper(strings.TrimSpace(item))
+		return strings.Contains(normalized, eggType) && strings.Contains(normalized, "EGG")
+	}
+
+	var prices []PriceHistory
+	for monthKey, itemPrices := range priceMap {
+		var largePrice float64
+		hasLarge := false
+		for item, price := range itemPrices {
+			if matchesEggType(item, "LARGE") {
+				largePrice = price
+				hasLarge = true
+				break
+			}
+		}
+
+		for item, price := range itemPrices {
+			prices = append(prices, PriceHistory{
+				ID:        0,
+				TenantID:  tenantID.String(),
+				PriceType: "EGG",
+				ItemName:  item,
+				PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
+				Price:     price,
+				CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
+			})
+		}
+
+		if hasLarge {
+			hasMedium := false
+			hasSmall := false
+			for item := range itemPrices {
+				if matchesEggType(item, "MEDIUM") {
+					hasMedium = true
+				}
+				if matchesEggType(item, "SMALL") {
+					hasSmall = true
+				}
+			}
+
+			if !hasMedium {
+				prices = append(prices, PriceHistory{
+					ID:        0,
+					TenantID:  tenantID.String(),
+					PriceType: "EGG",
+					ItemName:  "MEDIUM EGG",
+					PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
+					Price:     largePrice - 0.10,
+					CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
+				})
+			}
+
+			if !hasSmall {
+				prices = append(prices, PriceHistory{
+					ID:        0,
+					TenantID:  tenantID.String(),
+					PriceType: "EGG",
+					ItemName:  "SMALL EGG",
+					PriceDate: fmt.Sprintf("%04d-%02d-01", monthKey.Year, monthKey.Month),
+					Price:     largePrice - 0.15,
+					CreatedAt: fmt.Sprintf("%04d-%02d-01T00:00:00Z", monthKey.Year, monthKey.Month),
+				})
+			}
+		}
+	}
+	return prices, nil
+}
+
+func fetchStoredPrices(tenantID uuid.UUID, priceType, itemName, startDate, endDate string) ([]PriceHistory, error) {
+	query := `
+		SELECT id, tenant_id, price_date, price_type, item_name, price, created_at
+		FROM price_history
+		WHERE tenant_id = $1
+	`
+	args := []interface{}{tenantID}
+	argIndex := 2
+
+	if priceType != "" {
+		query += ` AND price_type = $` + strconv.Itoa(argIndex)
+		args = append(args, priceType)
+		argIndex++
+	}
+
+	if itemName != "" {
+		query += ` AND item_name = $` + strconv.Itoa(argIndex)
+		args = append(args, itemName)
+		argIndex++
+	}
+
+	if startDate != "" {
+		query += ` AND price_date >= $` + strconv.Itoa(argIndex)
+		args = append(args, startDate)
+		argIndex++
+	}
+
+	if endDate != "" {
+		query += ` AND price_date <= $` + strconv.Itoa(argIndex)
+		args = append(args, endDate)
+		argIndex++
+	}
+
+	query += ` ORDER BY price_date DESC, item_name`
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prices []PriceHistory
+	for rows.Next() {
+		var price PriceHistory
+		var createdAt sql.NullTime
+
+		err := rows.Scan(
+			&price.ID, &price.TenantID, &price.PriceDate,
+			&price.PriceType, &price.ItemName, &price.Price, &createdAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		if createdAt.Valid {
+			price.CreatedAt = createdAt.Time.Format("2006-01-02T15:04:05Z")
+		}
+
+		prices = append(prices, price)
+	}
+	return prices, nil
 }
 
 // CreatePriceHistory creates a new price history entry
