@@ -20,7 +20,6 @@ jobs:
     name: 1. Deploy to Staging
     runs-on: ubuntu-latest
     environment: staging
-    if: ${{ vars.STAGING_ENABLED == 'true' }}
     outputs:
       image_uri: ${{ steps.image-meta.outputs.image_uri }}
       image_tag: ${{ steps.image-meta.outputs.image_tag }}
@@ -99,7 +98,6 @@ jobs:
     needs: deploy-staging
     runs-on: ubuntu-latest
     environment: staging
-    if: ${{ vars.STAGING_ENABLED == 'true' && vars.STAGING_API_URL != '' }}
 
     steps:
       - name: Checkout
