@@ -276,6 +276,7 @@ export interface EnhancedMonthlySummary {
   estimated_hens: number;
   actual_head_count?: number;
   using_actual_count?: boolean;
+  laying_age_weeks?: number;
   egg_percentage: number;
   egg_selling_price_per_egg?: number;
   layer_feed_cost_per_egg?: number;

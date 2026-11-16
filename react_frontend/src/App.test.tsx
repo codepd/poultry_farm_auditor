@@ -13,7 +13,7 @@ import HenBatchesPage from './pages/HenBatchesPage';
 import HomePage from './pages/HomePage';
 import OnboardingTour from './onboarding/OnboardingTour';
 import { TOUR_STEPS, CURRENT_TOUR_VERSION, getPendingSteps } from './onboarding/tourSteps';
-import api, { analyticsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI, authAPI } from './services/api';
+import api, { analyticsAPI, tenantsAPI, usersAPI, adminAPI, transactionsAPI, henBatchesAPI, authAPI } from './services/api';
 
 const mockNavigate = jest.fn();
 jest.mock(
@@ -97,6 +97,9 @@ jest.mock('./services/api', () => ({
     getEnhancedMonthlySummary: jest.fn(),
     getMonthlyBreakdown: jest.fn(),
     getLatestDataMonth: jest.fn(),
+  },
+  tenantsAPI: {
+    updateTenant: jest.fn().mockResolvedValue({}),
   },
   usersAPI: {
     getUsers: jest.fn(),
@@ -375,6 +378,15 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
       expect(
         screen.getByText(/புதிய கோழிக் குஞ்சு பேட்ச் தீவனக் கணக்கில் கண்டறியப்பட்டுள்ளது/i)
       ).toBeInTheDocument();
+    });
+
+    // Toggle laying start age between 18W and 22W
+    fireEvent.click(screen.getByRole('button', { name: '18W' }));
+    await waitFor(() => {
+      expect(tenantsAPI.updateTenant).toHaveBeenCalledWith(
+        '8d7939f7-b716-4eb0-98d4-544c18c8dfb8',
+        { age_category_prelayer_max_weeks: 18 }
+      );
     });
   });
 });

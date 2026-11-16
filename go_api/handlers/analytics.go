@@ -64,6 +64,14 @@ func InvalidateAnalyticsCache(tenantID string) {
 	}
 }
 
+// resolveLayingAgeWeeks returns the tenant's configured laying start age in weeks (e.g. 18 or 22), defaulting to 22.
+func resolveLayingAgeWeeks(tenantPrelayerMax sql.NullInt64) int {
+	if tenantPrelayerMax.Valid && tenantPrelayerMax.Int64 >= 10 && tenantPrelayerMax.Int64 <= 40 {
+		return int(tenantPrelayerMax.Int64)
+	}
+	return 22
+}
+
 func sanitizeFloat(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0
@@ -817,8 +825,11 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	var actualHeadCount float64 // Average daily head count (for display and calculation)
 	usingActualCount := false
 
-	// Laying typically starts around 18-20 weeks (126-140 days)
-	const layingAgeDays = 126
+	// Laying start age comes from tenant config (age_category_prelayer_max_weeks: 18 or 22, default 22)
+	var prelayerMaxWeeks sql.NullInt64
+	_ = database.DB.QueryRow(`SELECT age_category_prelayer_max_weeks FROM tenants WHERE id = $1`, tenantID).Scan(&prelayerMaxWeeks)
+	layingAgeWeeks := resolveLayingAgeWeeks(prelayerMaxWeeks)
+	layingAgeDays := layingAgeWeeks * 7
 
 	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := monthStart.AddDate(0, 1, 0) // Start of next month
@@ -1694,6 +1705,7 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		"estimated_hens":                   estimatedHens,
 		"actual_head_count":                actualHeadCount,
 		"using_actual_count":               usingActualCount,
+		"laying_age_weeks":                 layingAgeWeeks,
 		"egg_percentage":                   eggPercentage,
 		"egg_selling_price_per_egg":        eggSellingPricePerEgg,
 		"layer_feed_cost_per_egg":          layerFeedCostPerEgg,
