@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"math"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestParseStatementLinesFullParity(t *testing.T) {
@@ -130,5 +133,20 @@ func TestParseOctober2026SakthiLedgerPatterns(t *testing.T) {
 	if !foundChickFeed || !foundLayerFeed || !foundSupp || !foundDebitNote {
 		t.Fatalf("missing expected parsed items: chick=%v layer=%v supp=%v debit=%v items=%+v",
 			foundChickFeed, foundLayerFeed, foundSupp, foundDebitNote, ps.RawItems)
+	}
+}
+
+func TestBuildLedgerDeleteQueryModes(t *testing.T) {
+	tid := uuid.New()
+	qAppend, argsAppend := buildLedgerDeleteQuery("append_file", tid, 2026, 10, "Ledger import: oct_sakthi.pdf")
+	if !strings.Contains(qAppend, "notes = $2") || len(argsAppend) != 2 || argsAppend[1] != "Ledger import: oct_sakthi.pdf" {
+		t.Fatalf("unexpected append_file delete query: %s args=%v", qAppend, argsAppend)
+	}
+
+	qReplace, argsReplace := buildLedgerDeleteQuery("replace_month", tid, 2026, 10, "Ledger import: oct_revised.pdf")
+	if !strings.Contains(qReplace, "EXTRACT(YEAR FROM transaction_date)") ||
+		!strings.Contains(qReplace, "notes LIKE 'Ledger import: %'") ||
+		len(argsReplace) != 3 || argsReplace[1] != 2026 || argsReplace[2] != 10 {
+		t.Fatalf("unexpected replace_month delete query: %s args=%v", qReplace, argsReplace)
 	}
 }

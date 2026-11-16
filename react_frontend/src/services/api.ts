@@ -726,9 +726,10 @@ export const adminAPI = {
     );
     return response.data.data;
   },
-  commitUpload: async (id: number) => {
+  commitUpload: async (id: number, importMode: 'append_file' | 'replace_month' = 'append_file') => {
     const response = await api.post<{ success: boolean; data: any }>(
-      `/admin/uploads/${id}/commit`
+      `/admin/uploads/${id}/commit`,
+      { import_mode: importMode }
     );
     return response.data.data;
   },

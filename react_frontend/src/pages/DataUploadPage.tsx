@@ -17,6 +17,7 @@ const DataUploadPage: React.FC = () => {
   const [committedSuccess, setCommittedSuccess] = useState(false);
   const [archivedFeedCard, setArchivedFeedCard] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'feeds' | 'eggs' | 'discounts' | 'payments'>('feeds');
+  const [importMode, setImportMode] = useState<'append_file' | 'replace_month'>('append_file');
 
   // Audit history state
   const [uploadHistory, setUploadHistory] = useState<DocumentUploadRecord[]>([]);
@@ -146,7 +147,7 @@ const DataUploadPage: React.FC = () => {
     setError('');
     try {
       if (currentUploadId) {
-        await adminAPI.commitUpload(currentUploadId);
+        await adminAPI.commitUpload(currentUploadId, importMode);
       } else if (selectedFile) {
         await adminAPI.uploadLedger(selectedFile, true);
       }
@@ -562,6 +563,36 @@ const DataUploadPage: React.FC = () => {
           </div>
 
           {/* Action Footer */}
+          <div className="import-mode-box">
+            <div className="import-mode-title">How should this statement be saved for this month?</div>
+            <label className="import-mode-option">
+              <input
+                type="radio"
+                name="importMode"
+                value="append_file"
+                checked={importMode === 'append_file'}
+                onChange={() => setImportMode('append_file')}
+              />
+              <div>
+                <strong>Add / Keep other files for this month</strong>
+                <span>Use for partial-month statements (e.g., Everest 1st–15th + Sakthi 16th–31st). Re-uploading the same filename still replaces that file&apos;s entries.</span>
+              </div>
+            </label>
+            <label className="import-mode-option">
+              <input
+                type="radio"
+                name="importMode"
+                value="replace_month"
+                checked={importMode === 'replace_month'}
+                onChange={() => setImportMode('replace_month')}
+              />
+              <div>
+                <strong>Replace all ledger imports for this month</strong>
+                <span>Use when uploading a revised full-month statement under a new filename. Clears earlier ledger imports for this month while keeping manual entries.</span>
+              </div>
+            </label>
+          </div>
+
           <div className="review-actions-bar">
             <button
               type="button"

@@ -359,8 +359,12 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func runLedgerParser(filePath, fileType string, tenantID uuid.UUID, commit bool, fallbackYear, fallbackMonth int) (map[string]interface{}, error) {
+	return runLedgerParserWithMode(filePath, fileType, tenantID, commit, fallbackYear, fallbackMonth, "append_file")
+}
+
+func runLedgerParserWithMode(filePath, fileType string, tenantID uuid.UUID, commit bool, fallbackYear, fallbackMonth int, importMode string) (map[string]interface{}, error) {
 	if fileType == "LEDGER_PDF" || strings.EqualFold(filepath.Ext(filePath), ".pdf") {
-		return ParseAndCommitLedgerPDF(filePath, tenantID, commit, fallbackYear, fallbackMonth)
+		return ParseAndCommitLedgerPDFWithMode(filePath, tenantID, commit, fallbackYear, fallbackMonth, importMode)
 	}
 	return executePythonLedgerParser(filePath, tenantID, commit)
 }
@@ -534,7 +538,16 @@ func CommitDocumentUploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, parseErr := runLedgerParser(stagedPath, "", tenantID, true, 0, 0)
+	var reqBody struct {
+		ImportMode string `json:"import_mode"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&reqBody)
+	importMode := strings.TrimSpace(reqBody.ImportMode)
+	if importMode != "replace_month" {
+		importMode = "append_file"
+	}
+
+	result, parseErr := runLedgerParserWithMode(stagedPath, "", tenantID, true, 0, 0, importMode)
 	updateDocumentUploadAfterParse(uploadID, tenantID, result, parseErr, true)
 	if parseErr != nil {
 		log.Printf("Ledger parse/commit error (upload_id=%d): %v", uploadID, parseErr)
