@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import HenBatchesPage from './HenBatchesPage';
 import { henBatchesAPI } from '../services/api';
 
@@ -75,5 +75,11 @@ describe('HenBatchesPage alert prefill flow', () => {
     const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
     expect(dateInput).not.toBeNull();
     expect(dateInput.value).toBe('2026-09-27');
+
+    // Changing Date Added must NOT overwrite Age at Date Added with elapsed weeks (avoids double-counting)
+    fireEvent.change(dateInput, { target: { value: '2026-09-14' } });
+    const numberInputs = document.querySelectorAll('input[type="number"]');
+    const ageWeeksInput = numberInputs[2] as HTMLInputElement;
+    expect(ageWeeksInput.value).toBe('0');
   });
 });
