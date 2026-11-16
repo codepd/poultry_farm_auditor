@@ -49,7 +49,21 @@ run_smoke() {
     fail "GET /health: expected HTTP 200 or 404, got $code"
   fi
 
-  code=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/health")
+  # Retry briefly on transient 502/503/504/000 while ALB finishes registering the new pod IP
+  local attempt
+  code="000"
+  for attempt in 1 2 3 4 5 6; do
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/health" || echo "000")
+    if [[ "$code" == "200" ]]; then
+      break
+    fi
+    if [[ "$code" == "502" || "$code" == "503" || "$code" == "504" || "$code" == "000" ]]; then
+      echo "Waiting for ALB target registration (attempt $attempt/6, got HTTP $code)..."
+      sleep 5
+    else
+      break
+    fi
+  done
   expect_code "GET /api/health" "200" "$code"
 
   code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$BASE/api/auth/refresh" \
