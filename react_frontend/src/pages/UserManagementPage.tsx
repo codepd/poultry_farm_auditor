@@ -142,6 +142,34 @@ const UserManagementPage: React.FC = () => {
     return '—';
   };
 
+  const handleRoleChange = async (member: TenantUser, newRole: string) => {
+    setError('');
+    setSuccessMsg('');
+    try {
+      await usersAPI.updateUserRole(member.id, newRole);
+      setSuccessMsg(`Updated ${member.full_name || member.email || member.phone} role to ${newRole.replace('_', ' ')}`);
+      loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update member role');
+    }
+  };
+
+  const handleRemoveMember = async (member: TenantUser) => {
+    const label = member.full_name || member.email || member.phone || `User #${member.id}`;
+    if (!window.confirm(`Remove ${label} from this farm?`)) {
+      return;
+    }
+    setError('');
+    setSuccessMsg('');
+    try {
+      await usersAPI.removeUser(member.id);
+      setSuccessMsg(`Removed ${label} from this farm`);
+      loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to remove member');
+    }
+  };
+
   const getInviteType = (inv: InvitationInfo) => {
     if (inv.phone && inv.phone.Valid) return 'Phone';
     return 'Email';
@@ -304,7 +332,39 @@ const UserManagementPage: React.FC = () => {
                     {t('team.whatsappMagicLink')}
                   </button>
                   <span className={`role-badge role-${u.role.toLowerCase()}`}>{u.role.replace('_', ' ')}</span>
-                  {u.is_owner && <span className="owner-badge">Owner</span>}
+                  {u.is_owner ? (
+                    <span className="owner-badge">Owner</span>
+                  ) : (
+                    <>
+                      <select
+                        aria-label={`Role for ${u.full_name || u.email || u.phone || u.id}`}
+                        value={u.role}
+                        onChange={(e) => handleRoleChange(u, e.target.value)}
+                        style={{ fontSize: '0.78rem', padding: '0.25rem 0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r.value} value={r.value}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMember(u)}
+                        style={{
+                          fontSize: '0.75rem',
+                          padding: '0.3rem 0.65rem',
+                          borderRadius: '6px',
+                          border: '1px solid #fecaca',
+                          background: '#fef2f2',
+                          color: '#dc2626',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

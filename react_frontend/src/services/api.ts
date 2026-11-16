@@ -621,6 +621,14 @@ export const usersAPI = {
     const response = await api.post<{ success: boolean; data: { invitation_id: number; token: string; magic_login_link: string; phone: string; email: string; expires_at: string } }>('/users/magic-link', { user_id: userId });
     return response.data.data;
   },
+  updateUserRole: async (userId: number, role: string) => {
+    const response = await api.put<{ success: boolean; message: string; data: { user_id: number; role: string } }>(`/users/${userId}/role`, { role });
+    return response.data;
+  },
+  removeUser: async (userId: number) => {
+    const response = await api.delete<{ success: boolean; message: string }>(`/users/${userId}`);
+    return response.data;
+  },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
     const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
     return response.data;

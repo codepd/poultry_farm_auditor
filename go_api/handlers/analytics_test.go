@@ -218,3 +218,16 @@ func TestResolveLayingAgeWeeks(t *testing.T) {
 		t.Errorf("expected fallback 22 for out-of-range value, got %d", got)
 	}
 }
+
+func TestIsValidAssignableRole(t *testing.T) {
+	for _, r := range []string{"CO_OWNER", "ADMIN", "MANAGER", "AUDITOR", "OTHER_USER", "manager"} {
+		if !isValidAssignableRole(r) {
+			t.Errorf("expected role %q to be assignable", r)
+		}
+	}
+	for _, r := range []string{"OWNER", "SUPERADMIN", ""} {
+		if isValidAssignableRole(r) {
+			t.Errorf("expected role %q NOT to be assignable", r)
+		}
+	}
+}

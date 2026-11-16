@@ -708,7 +708,7 @@ func SeedDefaultRolePermissions(tenantID uuid.UUID) {
 		{"CO_OWNER", true, true, true, true, true},
 		{"MANAGER", false, true, true, false, true},
 		{"AUDITOR", true, false, false, false, true},
-		{"OTHER_USER", false, true, false, false, false},
+		{"OTHER_USER", false, true, false, false, true},
 	}
 	for _, d := range defaults {
 		_, _ = database.DB.Exec(`

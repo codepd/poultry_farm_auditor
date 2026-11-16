@@ -115,6 +115,8 @@ func main() {
 	protectedRouter.HandleFunc("/users/invite", handlers.InviteUser).Methods("POST")
 	protectedRouter.HandleFunc("/users/invitations", handlers.GetInvitations).Methods("GET")
 	protectedRouter.HandleFunc("/users/magic-link", handlers.GenerateUserMagicLink).Methods("POST")
+	protectedRouter.HandleFunc("/users/{id}/role", handlers.UpdateUserRole).Methods("PUT")
+	protectedRouter.HandleFunc("/users/{id}", handlers.RemoveUser).Methods("DELETE")
 
 	// Public invitation acceptance
 	apiRouter.HandleFunc("/users/accept-invite", handlers.AcceptInvite).Methods("POST")

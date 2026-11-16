@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"poultry-farm-api/models"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -794,5 +796,145 @@ func LogoutOtherDevices(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]interface{}{
 			"revoked_sessions": rowsAffected,
 		},
+	})
+}
+
+func isValidAssignableRole(role string) bool {
+	switch strings.ToUpper(strings.TrimSpace(role)) {
+	case "CO_OWNER", "ADMIN", "MANAGER", "AUDITOR", "OTHER_USER":
+		return true
+	default:
+		return false
+	}
+}
+
+// UpdateUserRole promotes or demotes a member's role within the current tenant.
+func UpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "You do not have permission to manage users")
+		return
+	}
+
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil || targetUserID <= 0 {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	newRole := strings.ToUpper(strings.TrimSpace(req.Role))
+	if !isValidAssignableRole(newRole) {
+		respondWithError(w, http.StatusBadRequest, "Invalid role. Allowed: CO_OWNER, ADMIN, MANAGER, AUDITOR, OTHER_USER")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var isOwner bool
+	err = database.DB.QueryRow(`
+		SELECT COALESCE(is_owner, false) FROM tenant_users WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, targetUserID).Scan(&isOwner)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Member not found in this farm")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to check member")
+		return
+	}
+	if isOwner {
+		respondWithError(w, http.StatusForbidden, "Cannot change the farm owner's role")
+		return
+	}
+
+	if _, err := database.DB.Exec(`
+		UPDATE tenant_users SET role = $1 WHERE tenant_id = $2 AND user_id = $3
+	`, newRole, tenantID, targetUserID); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update member role")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Member role updated",
+		"data": map[string]interface{}{
+			"user_id": targetUserID,
+			"role":    newRole,
+		},
+	})
+}
+
+// RemoveUser removes a non-owner member from the current tenant.
+func RemoveUser(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "You do not have permission to manage users")
+		return
+	}
+
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil || targetUserID <= 0 {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	if targetUserID == user.UserID {
+		respondWithError(w, http.StatusBadRequest, "You cannot remove yourself from the farm")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var isOwner bool
+	err = database.DB.QueryRow(`
+		SELECT COALESCE(is_owner, false) FROM tenant_users WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, targetUserID).Scan(&isOwner)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Member not found in this farm")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to check member")
+		return
+	}
+	if isOwner {
+		respondWithError(w, http.StatusForbidden, "Cannot remove the farm owner")
+		return
+	}
+
+	if _, err := database.DB.Exec(`
+		DELETE FROM tenant_users WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, targetUserID); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to remove member")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Member removed from farm",
 	})
 }
