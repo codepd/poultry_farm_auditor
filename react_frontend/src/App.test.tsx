@@ -364,7 +364,11 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
     });
 
     fireEvent.click(screen.getByText(/Go to Hen Batches/i));
-    expect(mockNavigate).toHaveBeenCalledWith('/hen-batches');
+    const expectedDate = new Date();
+    expectedDate.setDate(expectedDate.getDate() - 12 * 7);
+    expect(mockNavigate).toHaveBeenCalledWith(
+      `/hen-batches?addBatch=1&date_added=${expectedDate.toISOString().split('T')[0]}`
+    );
 
     fireEvent.click(screen.getByTestId('switch-ta'));
     await waitFor(() => {
@@ -475,7 +479,7 @@ describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vaul
       expect(screen.getByText('FEED_RATE_CARD_2025.jpg')).toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText(/Search file name or S3 key/i);
+    const searchInput = screen.getByPlaceholderText(/Search by file name/i);
     fireEvent.change(searchInput, { target: { value: 'SAKTHI' } });
 
     expect(screen.getByText('SEP_2026_SAKTHI.pdf')).toBeInTheDocument();
