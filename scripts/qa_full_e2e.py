@@ -322,12 +322,12 @@ def provision_and_test_roles(tenant_id: str, owner_token: str):
         st_u, _ = api_json("GET", "/users", token=tokens[allowed_role])
         assert st_u == 200, f"{allowed_role} should get 200 on GET /users, got {st_u}"
 
-    # AUDITOR and OTHER_USER can view analytics charts -> 200
+    # AUDITOR can view analytics charts; OTHER_USER cannot -> 403
     now = dt.date.today()
     st_aud_chart, _ = api_json("GET", f"/analytics/enhanced-monthly-summary?year={now.year}&month={now.month}", token=tokens["AUDITOR"])
     assert st_aud_chart == 200, f"AUDITOR should view analytics (200), got {st_aud_chart}"
     st_staff_chart, _ = api_json("GET", f"/analytics/enhanced-monthly-summary?year={now.year}&month={now.month}", token=tokens["OTHER_USER"])
-    assert st_staff_chart == 200, f"OTHER_USER should view analytics (200), got {st_staff_chart}"
+    assert st_staff_chart == 403, f"OTHER_USER should get 403 on analytics, got {st_staff_chart}"
 
     # Clean up probe tx so analytics stay clean
     api_json("DELETE", f"/transactions/{probe_tx_id}", token=owner_token)
