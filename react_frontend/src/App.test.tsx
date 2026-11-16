@@ -554,6 +554,44 @@ describe('QA Suite 3: Header Language Switcher, Navbar Role-Based Tabs & S3 Vaul
       );
     });
   });
+
+  test('DailyQuickLogModal provides FEED, MEDICINE, and OTHER dropdowns with custom text fallback', async () => {
+    render(
+      <LanguageProvider>
+        <DailyQuickLogModal onClose={jest.fn()} />
+      </LanguageProvider>
+    );
+
+    fireEvent.click(screen.getByText(/Feed \/ Expense/i));
+
+    const itemSelect = screen.getByLabelText('Expense item') as HTMLSelectElement;
+    expect(itemSelect.value).toBe('LAYER MASH');
+    expect(screen.getByRole('option', { name: 'PRE-LAYER MASH' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'GROWER MASH' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'CHICK MASH' })).toBeInTheDocument();
+
+    // Switch to MEDICINE and pick custom medicine
+    const categorySelect = screen.getByDisplayValue('FEED');
+    fireEvent.change(categorySelect, { target: { value: 'MEDICINE' } });
+    expect((screen.getByLabelText('Expense item') as HTMLSelectElement).value).toBe('FEED SUPPLEMENTS');
+
+    fireEvent.change(screen.getByLabelText('Expense item'), { target: { value: '__CUSTOM__' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. LIVER TONIC'), { target: { value: 'liver tonic' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. 15000'), { target: { value: '2400' } });
+
+    fireEvent.click(screen.getByText(/Save Entry/i));
+
+    await waitFor(() => {
+      expect(transactionsAPI.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction_type: 'PURCHASE',
+          category: 'MEDICINE',
+          item_name: 'LIVER TONIC',
+          amount: 2400,
+        })
+      );
+    });
+  });
 });
 
 describe('QA Suite 4: End-to-End Functional Workflows (Login, Team Magic Link, Hen Batches & Mortality)', () => {

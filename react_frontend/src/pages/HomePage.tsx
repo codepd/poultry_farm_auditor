@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { analyticsAPI } from '../services/api';
-import MultiCategoryEntry from '../components/Home/MultiCategoryEntry';
 import DailyQuickLogModal from '../components/Home/DailyQuickLogModal';
 import OnboardingTour from '../onboarding/OnboardingTour';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
@@ -15,7 +14,6 @@ const HomePage: React.FC = () => {
   const { currentTenant } = useAuth();
   const { t, language } = useLanguage();
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
-  const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showMobileQuickLog, setShowMobileQuickLog] = useState(false);
   const [showDateRange, setShowDateRange] = useState(false);
 
@@ -74,16 +72,6 @@ const HomePage: React.FC = () => {
           </button>
         )}
 
-        {canEdit && (
-          <button
-            type="button"
-            className={`shortcut-pill ${showQuickEntry ? 'active' : ''}`}
-            onClick={() => setShowQuickEntry(!showQuickEntry)}
-          >
-            {showQuickEntry ? t('home.quickEntryClose') : t('home.quickEntryOpen')}
-          </button>
-        )}
-
         <button
           type="button"
           className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
@@ -92,12 +80,6 @@ const HomePage: React.FC = () => {
           {showDateRange ? t('home.dateRangeClose') : t('home.dateRangeOpen')}
         </button>
       </div>
-
-      {canEdit && showQuickEntry && (
-        <div className="collapsible-container">
-          <MultiCategoryEntry />
-        </div>
-      )}
 
       {showDateRange && (
         <div className="collapsible-container">
