@@ -308,14 +308,14 @@ const DataUploadPage: React.FC = () => {
             />
             <div className="dropzone-content">
               <span className="drop-icon">☁️</span>
-              <h3>Drag & drop your Ledger PDF, Excel, or Feed Price Sheet</h3>
-              <p>Supports Sakthi & Everest Feeds Statements (.pdf, .xlsx) and Feed Rate Card Images (.jpg, .png)</p>
+              <h3>{t('upload.dropTitle')}</h3>
+              <p>{t('upload.dropHint')}</p>
               <button
                 type="button"
                 className="select-file-btn"
                 onClick={() => fileInputRef.current?.click()}
               >
-                Browse File
+                {t('upload.browseFile')}
               </button>
             </div>
           </form>
@@ -333,7 +333,7 @@ const DataUploadPage: React.FC = () => {
                   onClick={handleReset}
                   disabled={parsing}
                 >
-                  Clear
+                  {t('upload.clear')}
                 </button>
                 <button
                   type="button"
@@ -341,29 +341,11 @@ const DataUploadPage: React.FC = () => {
                   onClick={handleParsePreview}
                   disabled={parsing}
                 >
-                  {parsing ? (asyncStage || 'Uploading & Checking...') : 'Upload & Check Statement'}
+                  {parsing ? (asyncStage || t('upload.checking')) : t('upload.submitBtn')}
                 </button>
               </div>
             </div>
           )}
-
-          <div className="features-info-grid">
-            <div className="feature-item">
-              <span className="f-icon">☁️</span>
-              <h4>Safe Cloud Backup</h4>
-              <p>Every uploaded ledger and feed price card is safely backed up so you can view or download it anytime.</p>
-            </div>
-            <div className="feature-item">
-              <span className="f-icon">⚡</span>
-              <h4>Automatic Reading</h4>
-              <p>Reads eggs sold, layer vs chick/grower feeds, medicines, credit notes, and cash receipts automatically.</p>
-            </div>
-            <div className="feature-item">
-              <span className="f-icon">🔒</span>
-              <h4>Review Before Saving</h4>
-              <p>Check the extracted line items and opening/closing balance totals before saving to your farm records.</p>
-            </div>
-          </div>
         </div>
       )}
 
@@ -654,7 +636,7 @@ const DataUploadPage: React.FC = () => {
               onClick={fetchUploadHistory}
               disabled={loadingHistory}
             >
-              {loadingHistory ? 'Refreshing...' : '↻ Refresh'}
+              {loadingHistory ? t('upload.refreshing') : t('upload.refreshBtn')}
             </button>
           </div>
         </div>
@@ -663,21 +645,19 @@ const DataUploadPage: React.FC = () => {
           <table className="review-table audit-vault-table">
             <thead>
               <tr>
-                <th>Document</th>
-                <th>Type</th>
-                <th>Period</th>
-                <th>Size</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th>{t('upload.colDocument')}</th>
+                <th>{t('upload.colType')}</th>
+                <th>{t('upload.colPeriod')}</th>
+                <th>{t('upload.colSize')}</th>
+                <th>{t('upload.colStatus')}</th>
+                <th>{t('upload.colActions')}</th>
               </tr>
             </thead>
             <tbody>
               {filteredUploadHistory.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="empty-vault-cell">
-                    {loadingHistory
-                      ? 'Loading saved documents...'
-                      : 'No documents uploaded yet. Upload a ledger PDF, Excel sheet, or feed price card above.'}
+                    {loadingHistory ? t('upload.loadingDocs') : t('upload.noDocs')}
                   </td>
                 </tr>
               ) : (
@@ -714,7 +694,7 @@ const DataUploadPage: React.FC = () => {
                           className="vault-action-btn review"
                           onClick={() => handleReviewHistoricalRecord(rec)}
                         >
-                          Review
+                          {t('upload.reviewBtn')}
                         </button>
                       )}
                       {rec.download_url && (
@@ -724,7 +704,7 @@ const DataUploadPage: React.FC = () => {
                           rel="noopener noreferrer"
                           className="vault-action-btn download"
                         >
-                          View File ↗
+                          {t('upload.viewFileBtn')}
                         </a>
                       )}
                     </td>
