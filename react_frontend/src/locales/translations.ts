@@ -155,6 +155,8 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'expenses.actions': 'Actions',
 
     // Hen Batches Page
+    'batches.showArchived': 'Show Sold / Archived Batches',
+    'batches.hideArchived': 'Hide Sold / Archived Batches',
     'batches.title': 'Hen Batches',
     'batches.totalHeadCount': 'Total Head Count:',
     'batches.addBatch': '+ Add Batch',
@@ -433,6 +435,8 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'expenses.actions': 'செயல்கள்',
 
     // Hen Batches Page
+    'batches.showArchived': 'விற்ற / பழைய பேட்ச்களைக் காட்டு',
+    'batches.hideArchived': 'விற்ற / பழைய பேட்ச்களை மறை',
     'batches.title': 'கோழிப் பேட்ச்கள் (Hen Batches)',
     'batches.totalHeadCount': 'மொத்த கோழிகள் எண்ணிக்கை:',
     'batches.addBatch': '+ புதிய பேட்ச் சேர்க்க',
