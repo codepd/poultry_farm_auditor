@@ -569,6 +569,8 @@ func UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	InvalidateAnalyticsCache(tenantID.String())
+
 	// Return updated tenant
 	GetTenant(w, r)
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"math"
 	"poultry-farm-api/config"
 	"strings"
@@ -200,5 +201,20 @@ func TestOTPVaultEncryptionAndHashing(t *testing.T) {
 	}
 	if !phonesMatch("+919876543210", "9876543210") || phonesMatch("+919876543210", "+919111111111") {
 		t.Errorf("phonesMatch failed phone number verification check")
+	}
+}
+
+func TestResolveLayingAgeWeeks(t *testing.T) {
+	if got := resolveLayingAgeWeeks(sql.NullInt64{Int64: 18, Valid: true}); got != 18 {
+		t.Errorf("expected 18, got %d", got)
+	}
+	if got := resolveLayingAgeWeeks(sql.NullInt64{Int64: 22, Valid: true}); got != 22 {
+		t.Errorf("expected 22, got %d", got)
+	}
+	if got := resolveLayingAgeWeeks(sql.NullInt64{Valid: false}); got != 22 {
+		t.Errorf("expected default 22, got %d", got)
+	}
+	if got := resolveLayingAgeWeeks(sql.NullInt64{Int64: 5, Valid: true}); got != 22 {
+		t.Errorf("expected fallback 22 for out-of-range value, got %d", got)
 	}
 }

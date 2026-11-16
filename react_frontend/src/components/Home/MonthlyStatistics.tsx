@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { analyticsAPI, EnhancedMonthlySummary, FlockAlert } from '../../services/api';
+import { analyticsAPI, tenantsAPI, EnhancedMonthlySummary, FlockAlert } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import BreakdownModal from './BreakdownModal';
@@ -24,6 +24,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
   const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const [updatingLayingAge, setUpdatingLayingAge] = useState(false);
 
   // Profit Calculation Toggles (default = 'production': Flock Operating + Rearing Feed, excludes overheads & TDS)
   const [includeHenSales, setIncludeHenSales] = useState(true);
@@ -54,6 +55,22 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
 
     fetchData();
   }, [year, month, isAuthenticated]);
+
+  const handleLayingAgeChange = async (weeks: number) => {
+    if (!currentTenant?.tenant_id || updatingLayingAge) return;
+    setUpdatingLayingAge(true);
+    try {
+      await tenantsAPI.updateTenant(currentTenant.tenant_id, {
+        age_category_prelayer_max_weeks: weeks,
+      });
+      const summary = await analyticsAPI.getEnhancedMonthlySummary(year, month);
+      setData(summary);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update laying age threshold');
+    } finally {
+      setUpdatingLayingAge(false);
+    }
+  };
 
   const formatNumber = (num: number | undefined | null) => {
     if (num === undefined || num === null) return '0';
@@ -733,7 +750,25 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
             <div className="prod-box">
               <span className="prod-label">{t('stats.layingPercentage')}</span>
               <span className="prod-value highlight">{formatNumber(data.egg_percentage)}%</span>
-              <span className="prod-sub">{t('stats.eggsPerBirdDay')}</span>
+              <span className="prod-sub">{t('stats.eggsPerBirdDay')} ({data.laying_age_weeks || 22}W+)</span>
+              {canEdit && (
+                <div className="laying-age-toggle" role="group" aria-label="Laying start age">
+                  {[18, 22].map((wks) => {
+                    const activeWeeks = data.laying_age_weeks || 22;
+                    return (
+                      <button
+                        key={wks}
+                        type="button"
+                        className={`laying-age-btn ${activeWeeks === wks ? 'active' : ''}`}
+                        disabled={updatingLayingAge}
+                        onClick={() => handleLayingAgeChange(wks)}
+                      >
+                        {wks}W
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {data.chick_stage_expense && data.chick_stage_expense.enabled && (
