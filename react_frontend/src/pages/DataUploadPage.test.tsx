@@ -73,7 +73,7 @@ describe('DataUploadPage Import Mode selection', () => {
       expect(screen.getByText('26_10_OCT_revised.pdf')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Inspect'));
+    fireEvent.click(screen.getByText(/^(Review|Inspect)$/i));
 
     const appendRadio = screen.getByLabelText(/Add \/ Keep other files for this month/i) as HTMLInputElement;
     const replaceRadio = screen.getByLabelText(/Replace all ledger imports for this month/i) as HTMLInputElement;
