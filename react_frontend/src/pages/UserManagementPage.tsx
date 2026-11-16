@@ -142,19 +142,19 @@ const UserManagementPage: React.FC = () => {
     return '—';
   };
 
-  const handleRoleChange = async (member: UserInfo, newRole: string) => {
+  const handleRoleChange = async (member: TenantUser, newRole: string) => {
     setError('');
     setSuccessMsg('');
     try {
       await usersAPI.updateUserRole(member.id, newRole);
       setSuccessMsg(`Updated ${member.full_name || member.email || member.phone} role to ${newRole.replace('_', ' ')}`);
-      fetchData();
+      loadData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update member role');
     }
   };
 
-  const handleRemoveMember = async (member: UserInfo) => {
+  const handleRemoveMember = async (member: TenantUser) => {
     const label = member.full_name || member.email || member.phone || `User #${member.id}`;
     if (!window.confirm(`Remove ${label} from this farm?`)) {
       return;
@@ -164,7 +164,7 @@ const UserManagementPage: React.FC = () => {
     try {
       await usersAPI.removeUser(member.id);
       setSuccessMsg(`Removed ${label} from this farm`);
-      fetchData();
+      loadData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to remove member');
     }
