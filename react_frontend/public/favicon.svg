@@ -1,28 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <!-- Hen body -->
-  <ellipse cx="50" cy="60" rx="25" ry="20" fill="#8B4513" stroke="#654321" stroke-width="2"/>
-  
-  <!-- Hen head -->
-  <circle cx="50" cy="35" r="15" fill="#FFA500" stroke="#FF8C00" stroke-width="2"/>
-  
-  <!-- Hen beak -->
-  <polygon points="40,35 30,32 30,38" fill="#FFD700"/>
-  
-  <!-- Hen eye -->
-  <circle cx="55" cy="32" r="3" fill="#000"/>
-  <circle cx="56" cy="31" r="1" fill="#FFF"/>
-  
-  <!-- Hen comb -->
-  <path d="M 50 20 L 45 15 L 50 18 L 55 15 Z" fill="#FF0000"/>
-  <path d="M 50 18 L 45 12 L 50 15 L 55 12 Z" fill="#FF0000"/>
-  
-  <!-- Hen tail -->
-  <path d="M 75 55 Q 85 50 90 45 Q 85 55 75 60" fill="#8B4513" stroke="#654321" stroke-width="2"/>
-  
-  <!-- Egg -->
-  <ellipse cx="70" cy="70" rx="8" ry="12" fill="#FFF" stroke="#DDD" stroke-width="1.5"/>
-  <ellipse cx="70" cy="70" rx="6" ry="9" fill="#F5F5F5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#667eea" />
+      <stop offset="100%" stop-color="#764ba2" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)" />
+  <!-- Single clean egg silhouette -->
+  <path
+    d="M32 12c-8.5 0-16 14.5-16 25a16 16 0 0 0 32 0c0-10.5-7.5-25-16-25z"
+    fill="#ffffff"
+  />
+  <path
+    d="M25 32c0-5 2.5-10 5-12"
+    fill="none"
+    stroke="#e2e8f0"
+    stroke-width="2.5"
+    stroke-linecap="round"
+  />
 </svg>
-
-
-
