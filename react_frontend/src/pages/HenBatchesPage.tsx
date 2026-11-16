@@ -356,20 +356,7 @@ const HenBatchesPage: React.FC = () => {
                   type="date"
                   value={formData.date_added}
                   onChange={(e) => {
-                    const newDate = e.target.value;
-                    // Auto-calculate age when date changes (only for new batches, not editing)
-                    // For new batches, we start with 0 weeks/days, so calculate elapsed time only
-                    if (!editingBatch && newDate) {
-                      const age = calculateAgeFromDate(newDate, timezone, 0, 0);
-                      setFormData({ 
-                        ...formData, 
-                        date_added: newDate,
-                        age_weeks: age.weeks,
-                        age_days: age.days
-                      });
-                    } else {
-                      setFormData({ ...formData, date_added: newDate });
-                    }
+                    setFormData({ ...formData, date_added: e.target.value });
                   }}
                   required
                   disabled={!!editingBatch}
@@ -408,7 +395,7 @@ const HenBatchesPage: React.FC = () => {
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label>Age (Weeks) <span className="hint">(Auto-calculated from date, or set manually for existing batches)</span></label>
+                <label>Age at Date Added (Weeks) <span className="hint">(0 for day-old chicks)</span></label>
                 <input
                   type="number"
                   value={formData.age_weeks ?? ''}
@@ -421,7 +408,7 @@ const HenBatchesPage: React.FC = () => {
                 />
               </div>
               <div className="form-group">
-                <label>Age (Days) <span className="hint">(Auto-calculated from date, or set manually for existing batches)</span></label>
+                <label>Age at Date Added (Days) <span className="hint">(0 for day-old chicks)</span></label>
                 <input
                   type="number"
                   value={formData.age_days ?? ''}
