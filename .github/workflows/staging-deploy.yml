@@ -129,11 +129,55 @@ jobs:
           fi
           python3 scripts/qa_full_e2e.py
 
-  deploy-prod:
-    name: 3. Deploy to Production
+  deploy-prod-fe:
+    name: 3a. Deploy FE to Production
+    needs: [staging-e2e]
+    runs-on: ubuntu-24.04
+    environment: production-fe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: react_frontend/package-lock.json
+
+      - name: Build & deploy React frontend to Production S3
+        working-directory: react_frontend
+        env:
+          REACT_APP_API_URL: https://api-dev.mykolipannai.com/api
+          PROD_S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
+          PROD_CF_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [[ -z "${PROD_S3_BUCKET:-}" ]]; then
+            echo "FRONTEND_S3_BUCKET secret not set; skipping prod frontend deploy"
+            exit 0
+          fi
+          npm ci
+          npm run build
+          aws s3 sync build/ "s3://${PROD_S3_BUCKET}" --delete \
+            --exclude "index.html" --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp build/index.html "s3://${PROD_S3_BUCKET}/index.html" \
+            --cache-control "no-cache, no-store, must-revalidate"
+          if [[ -n "${PROD_CF_ID:-}" ]]; then
+            aws cloudfront create-invalidation --distribution-id "${PROD_CF_ID}" --paths "/*"
+          fi
+
+  deploy-prod-be:
+    name: 3b. Deploy BE to Production
     needs: [deploy-staging, staging-e2e]
     runs-on: ubuntu-24.04
-    environment: production
+    environment: production-be
 
     steps:
       - name: Checkout
@@ -163,34 +207,6 @@ jobs:
           aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
           kubectl -n "$K8S_NAMESPACE" set image deployment/go-api go-api="$IMAGE_URI:$IMAGE_TAG"
           kubectl -n "$K8S_NAMESPACE" rollout status deployment/go-api --timeout=180s
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: react_frontend/package-lock.json
-
-      - name: Build & deploy React frontend to Production S3
-        working-directory: react_frontend
-        env:
-          REACT_APP_API_URL: https://api-dev.mykolipannai.com/api
-          PROD_S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
-          PROD_CF_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
-        run: |
-          if [[ -z "${PROD_S3_BUCKET:-}" ]]; then
-            echo "FRONTEND_S3_BUCKET secret not set; skipping prod frontend deploy"
-            exit 0
-          fi
-          npm ci
-          npm run build
-          aws s3 sync build/ "s3://${PROD_S3_BUCKET}" --delete \
-            --exclude "index.html" --cache-control "public, max-age=31536000, immutable"
-          aws s3 cp build/index.html "s3://${PROD_S3_BUCKET}/index.html" \
-            --cache-control "no-cache, no-store, must-revalidate"
-          if [[ -n "${PROD_CF_ID:-}" ]]; then
-            aws cloudfront create-invalidation --distribution-id "${PROD_CF_ID}" --paths "/*"
-          fi
 
       - name: Run read-only Production smoke check
         env:
