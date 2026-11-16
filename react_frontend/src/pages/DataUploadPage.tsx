@@ -241,9 +241,9 @@ const DataUploadPage: React.FC = () => {
       {archivedFeedCard && (
         <div className="commit-success-card">
           <div className="success-icon">☁️</div>
-          <h3>Feed Price Sheet Archived to AWS S3!</h3>
+          <h3>Feed Price Sheet Saved!</h3>
           <p>
-            <strong>{archivedFeedCard.file_name}</strong> has been stored in <code>s3://{archivedFeedCard.s3_bucket}/{archivedFeedCard.s3_key}</code> for permanent audit reference.
+            <strong>{archivedFeedCard.file_name}</strong> has been safely backed up to your saved documents.
           </p>
           <div className="success-actions">
             {archivedFeedCard.download_url && (
@@ -254,7 +254,7 @@ const DataUploadPage: React.FC = () => {
                 className="view-btn"
                 style={{ textDecoration: 'none' }}
               >
-                View S3 Object
+                View Uploaded File
               </a>
             )}
             <button className="another-btn" onClick={handleReset}>
@@ -267,9 +267,9 @@ const DataUploadPage: React.FC = () => {
       {committedSuccess && (
         <div className="commit-success-card">
           <div className="success-icon">✅</div>
-          <h3>Statement Validated, Archived in S3 & Imported!</h3>
+          <h3>Statement Checked & Saved!</h3>
           <p>
-            {parsedData?.pdf_filename || selectedFile?.name} for <strong>{summary?.ledger_period || `${parsedData?.month}/${parsedData?.year}`}</strong> is archived at <code>s3://{parsedData?.s3_bucket}/{parsedData?.s3_key}</code> and committed to your farm database.
+            {parsedData?.pdf_filename || selectedFile?.name} for <strong>{summary?.ledger_period || `${parsedData?.month}/${parsedData?.year}`}</strong> has been backed up and saved to your farm records.
           </p>
           <div className="success-actions">
             <button
@@ -341,7 +341,7 @@ const DataUploadPage: React.FC = () => {
                   onClick={handleParsePreview}
                   disabled={parsing}
                 >
-                  {parsing ? (asyncStage || 'Uploading & Parsing...') : 'Upload to S3 & Parse Statement'}
+                  {parsing ? (asyncStage || 'Uploading & Checking...') : 'Upload & Check Statement'}
                 </button>
               </div>
             </div>
@@ -350,18 +350,18 @@ const DataUploadPage: React.FC = () => {
           <div className="features-info-grid">
             <div className="feature-item">
               <span className="f-icon">☁️</span>
-              <h4>AWS S3 Audit Vault</h4>
-              <p>Every uploaded ledger and feed price card is versioned in S3 with SHA-256 checksums for full audit traceability.</p>
+              <h4>Safe Cloud Backup</h4>
+              <p>Every uploaded ledger and feed price card is safely backed up so you can view or download it anytime.</p>
             </div>
             <div className="feature-item">
               <span className="f-icon">⚡</span>
-              <h4>Async Extraction</h4>
-              <p>Parses eggs sold, layer vs chick/grower feeds, medicines, credit notes, and cash receipts in the background.</p>
+              <h4>Automatic Reading</h4>
+              <p>Reads eggs sold, layer vs chick/grower feeds, medicines, credit notes, and cash receipts automatically.</p>
             </div>
             <div className="feature-item">
               <span className="f-icon">🔒</span>
-              <h4>Pre-Commit Verification</h4>
-              <p>Inspect extracted line items and opening/closing balance math before committing to production records.</p>
+              <h4>Review Before Saving</h4>
+              <p>Check the extracted line items and opening/closing balance totals before saving to your farm records.</p>
             </div>
           </div>
         </div>
@@ -375,9 +375,6 @@ const DataUploadPage: React.FC = () => {
               <h3>Statement Validation Preview</h3>
               <span className="review-meta">
                 Provider: <strong>{summary.feed_provider || 'Feed Provider'}</strong> | Period: <strong>{summary.ledger_period || `${parsedData.month}/${parsedData.year}`}</strong>
-                {parsedData.s3_key && (
-                  <> | S3 Audit Key: <code>{parsedData.s3_key}</code></>
-                )}
               </span>
             </div>
             <div className="validation-pill-box">
@@ -388,7 +385,7 @@ const DataUploadPage: React.FC = () => {
                   rel="noopener noreferrer"
                   className="s3-link-pill"
                 >
-                  ⬇ S3 Original
+                  ⬇ Original File
                 </a>
               )}
               {summary.validation_difference === 0 || summary.validation_difference < 1 ? (
@@ -667,10 +664,9 @@ const DataUploadPage: React.FC = () => {
             <thead>
               <tr>
                 <th>Document</th>
-                <th>Category</th>
+                <th>Type</th>
                 <th>Period</th>
-                <th>S3 Object Key</th>
-                <th>Size / SHA-256</th>
+                <th>Size</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -678,10 +674,10 @@ const DataUploadPage: React.FC = () => {
             <tbody>
               {filteredUploadHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="empty-vault-cell">
+                  <td colSpan={6} className="empty-vault-cell">
                     {loadingHistory
-                      ? 'Loading S3 audit records...'
-                      : 'No documents recorded yet. Upload a ledger or run the one-time S3 migration script.'}
+                      ? 'Loading saved documents...'
+                      : 'No documents uploaded yet. Upload a ledger PDF, Excel sheet, or feed price card above.'}
                   </td>
                 </tr>
               ) : (
@@ -690,7 +686,7 @@ const DataUploadPage: React.FC = () => {
                     <td className="item-name-cell">
                       <strong>{rec.file_name}</strong>
                       <div className="vault-source-meta">
-                        Source: {rec.upload_source} • {new Date(rec.created_at).toLocaleDateString('en-IN')}
+                        {new Date(rec.created_at).toLocaleDateString('en-IN')}
                       </div>
                     </td>
                     <td>
@@ -703,16 +699,8 @@ const DataUploadPage: React.FC = () => {
                       </span>
                     </td>
                     <td>{formatPeriod(rec.document_year, rec.document_month)}</td>
-                    <td className="s3-key-cell">
-                      <code>s3://{rec.s3_bucket}/{rec.s3_key}</code>
-                    </td>
                     <td>
                       <div>{formatBytes(rec.file_size)}</div>
-                      {rec.sha256_hash && (
-                        <code className="sha-badge" title={`SHA-256: ${rec.sha256_hash}`}>
-                          #{rec.sha256_hash.substring(0, 10)}
-                        </code>
-                      )}
                     </td>
                     <td>
                       <span className={`upload-status-pill status-${rec.upload_status.toLowerCase()}`}>
@@ -726,7 +714,7 @@ const DataUploadPage: React.FC = () => {
                           className="vault-action-btn review"
                           onClick={() => handleReviewHistoricalRecord(rec)}
                         >
-                          Inspect
+                          Review
                         </button>
                       )}
                       {rec.download_url && (
@@ -736,7 +724,7 @@ const DataUploadPage: React.FC = () => {
                           rel="noopener noreferrer"
                           className="vault-action-btn download"
                         >
-                          S3 File ↗
+                          View File ↗
                         </a>
                       )}
                     </td>

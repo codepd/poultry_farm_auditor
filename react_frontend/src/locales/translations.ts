@@ -185,11 +185,11 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'prices.allYears': 'All Years',
 
     // Upload Sheets Page
-    'upload.title': 'Monthly Data Sheet & S3 Audit Portal',
-    'upload.subtitle': 'Upload monthly ledger PDFs, parsed Excel sheets, or feed price rate cards. All files are archived in AWS S3 with SHA-256 verification and parsed asynchronously.',
-    'upload.vaultTitle': '☁️ AWS S3 Document Audit Vault',
-    'upload.vaultSubtitle': 'Immutable archive of monthly ledgers, feed price sheets, and parsed Excel spreadsheets stored in S3.',
-    'upload.searchPlaceholder': 'Search file name or S3 key...',
+    'upload.title': 'Upload Monthly Statements & Price Sheets',
+    'upload.subtitle': 'Upload your monthly ledger PDF, Excel sheet, or feed price card. Files are safely backed up and checked before saving to your farm records.',
+    'upload.vaultTitle': '☁️ Saved Documents',
+    'upload.vaultSubtitle': 'All uploaded monthly ledgers, feed price sheets, and Excel files.',
+    'upload.searchPlaceholder': 'Search by file name...',
     'upload.allTypes': 'All Document Types',
     'upload.ledgerPdfs': 'Ledger PDFs',
     'upload.feedPriceHistory': 'Feed Price History',
@@ -445,11 +445,11 @@ export const translations: Record<AppLanguage, Record<string, string>> = {
     'prices.allYears': 'அனைத்து வருடங்கள்',
 
     // Upload Sheets Page
-    'upload.title': 'மாதாந்திர கணக்கு பதிவேற்றம் & S3 ஆவணக் காப்பகம்',
-    'upload.subtitle': 'மாதாந்திர லெட்ஜர் PDF, எக்செல் (Excel), அல்லது தீவன விலை அட்டைகளைப் பதிவேற்றவும். அனைத்து ஆவணங்களும் AWS S3-ல் பாதுகாப்பாகச் சேமிக்கப்படும்.',
-    'upload.vaultTitle': '☁️ AWS S3 ஆவணக் காப்பகம் (Audit Vault)',
-    'upload.vaultSubtitle': 'AWS S3-ல் சேமிக்கப்பட்டுள்ள மாதாந்திர லெட்ஜர் PDF, தீவன விலை அட்டை மற்றும் எக்செல் ஆவணங்களின் பட்டியல்.',
-    'upload.searchPlaceholder': 'ஆவணப் பெயர் அல்லது S3 குறியீடு தேடுக...',
+    'upload.title': 'மாதாந்திர கணக்கு மற்றும் விலை அட்டை பதிவேற்றம்',
+    'upload.subtitle': 'மாதாந்திர லெட்ஜர் PDF, எக்செல் (Excel), அல்லது தீவன விலை அட்டைகளைப் பதிவேற்றவும். அனைத்து ஆவணங்களும் பாதுகாப்பாகச் சேமிக்கப்படும்.',
+    'upload.vaultTitle': '☁️ சேமித்த ஆவணங்கள்',
+    'upload.vaultSubtitle': 'பதிவேற்றப்பட்ட மாதாந்திர லெட்ஜர் PDF, தீவன விலை அட்டை மற்றும் எக்செல் ஆவணங்களின் பட்டியல்.',
+    'upload.searchPlaceholder': 'ஆவணப் பெயரைத் தேடுக...',
     'upload.allTypes': 'அனைத்து ஆவண வகைகள்',
     'upload.ledgerPdfs': 'லெட்ஜர் PDF ஆவணங்கள்',
     'upload.feedPriceHistory': 'தீவன விலை அட்டைகள்',
