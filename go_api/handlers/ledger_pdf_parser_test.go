@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -149,4 +150,44 @@ func TestBuildLedgerDeleteQueryModes(t *testing.T) {
 		len(argsReplace) != 3 || argsReplace[1] != 2026 || argsReplace[2] != 10 {
 		t.Fatalf("unexpected replace_month delete query: %s args=%v", qReplace, argsReplace)
 	}
+}
+
+func TestRealOct2026PDFExtraction(t *testing.T) {
+	pdfPath := "../../ledgers/2026_ledgers/26_10_OCT.pdf"
+	if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
+		t.Skip("26_10_OCT.pdf not present in workspace")
+	}
+	lines, err := extractPDFLines(pdfPath)
+	if err != nil {
+		t.Fatalf("extractPDFLines failed: %v", err)
+	}
+	ps := parseStatementLines(lines)
+	if ps.AccountHolder != "Pradeep PF" {
+		t.Fatalf("expected AccountHolder 'Pradeep PF', got %q", ps.AccountHolder)
+	}
+	if ps.OpeningBalance == nil || math.Abs(*ps.OpeningBalance-331917.09) > 0.01 {
+		t.Fatalf("expected OpeningBalance 331917.09, got %v", ps.OpeningBalance)
+	}
+	if ps.ClosingBalance == nil || math.Abs(*ps.ClosingBalance-777638.36) > 0.01 {
+		t.Fatalf("expected ClosingBalance 777638.36, got %v", ps.ClosingBalance)
+	}
+	var discountTotal float64
+	for _, d := range ps.Discounts {
+		discountTotal += d.Amount
+	}
+	if len(ps.Discounts) != 3 || math.Abs(discountTotal-82526.0) > 0.01 {
+		t.Fatalf("expected 3 discounts totaling 82526.00, got %d totaling %.2f: %+v", len(ps.Discounts), discountTotal, ps.Discounts)
+	}
+	var paymentTotal float64
+	for _, p := range ps.Payments {
+		paymentTotal += p.Amount
+	}
+	if len(ps.Payments) != 2 || math.Abs(paymentTotal-500000.0) > 0.01 {
+		t.Fatalf("expected 2 payments totaling 500000.00, got %d totaling %.2f: %+v", len(ps.Payments), paymentTotal, ps.Payments)
+	}
+	if len(ps.TDSEntries) != 1 || math.Abs(ps.TDSEntries[0].Amount-5531.0) > 0.01 {
+		t.Fatalf("expected 1 TDS of 5531.00, got %+v", ps.TDSEntries)
+	}
+	t.Logf("Parsed OK: holder=%q open=%.2f close=%.2f discounts=%.2f payments=%.2f tds=%.2f items=%d",
+		ps.AccountHolder, *ps.OpeningBalance, *ps.ClosingBalance, discountTotal, paymentTotal, ps.TDSEntries[0].Amount, len(ps.RawItems))
 }

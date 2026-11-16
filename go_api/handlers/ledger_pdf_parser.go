@@ -263,8 +263,15 @@ func parseStatementLines(allLines []string) *parsedStatement {
 	i := 0
 	for i < len(allLines) {
 		line := strings.TrimSpace(allLines[i])
+		lineUpper := strings.ToUpper(line)
 		m := dateHeaderRe.FindStringSubmatchIndex(line)
 		if m == nil {
+			if strings.Contains(lineUpper, "OPENING BALANCE") && ps.OpeningBalance == nil {
+				if amt := extractHeaderAmount(lineUpper); amt != nil {
+					val := *amt
+					ps.OpeningBalance = &val
+				}
+			}
 			i++
 			continue
 		}
@@ -276,6 +283,10 @@ func parseStatementLines(allLines []string) *parsedStatement {
 		}
 		rest := strings.TrimSpace(line[m[1]:])
 		headerText := strings.ToUpper(rest)
+		if strings.HasPrefix(headerText, "TO ") && dateHeaderRe.MatchString(strings.TrimSpace(rest[3:])) {
+			i++
+			continue
+		}
 		headerAmt := extractHeaderAmount(headerText)
 
 		txnType := "other"
@@ -380,6 +391,53 @@ func parseStatementLines(allLines []string) *parsedStatement {
 				}
 			}
 
+			// Handle multi-line Tally voucher headers where voucher type, date/bill, and By/To amount are on consecutive lines
+			if nxtUpper == "CREDIT NOTE" || (strings.Contains(nxtUpper, "CREDIT NOTE") && extractHeaderAmount(nxtUpper) == nil) {
+				if amt, entryDate, rawLine, nextJ := findLookaheadAmountAndDate(allLines, j, parsedDate, "BY "); amt != nil {
+					ps.Discounts = append(ps.Discounts, parsedLedgerAmountEntry{
+						Date: entryDate, Amount: *amt, Raw: nxt + " | " + rawLine,
+					})
+					j = nextJ
+					continue
+				}
+			} else if nxtUpper == "PAYMENT" {
+				if amt, entryDate, rawLine, nextJ := findLookaheadAmountAndDate(allLines, j, parsedDate, "TO "); amt != nil {
+					ps.Payments = append(ps.Payments, parsedLedgerAmountEntry{
+						Date: entryDate, Amount: *amt, Raw: nxt + " | " + rawLine,
+					})
+					j = nextJ
+					continue
+				}
+			} else if nxtUpper == "DEBIT NOTE" || (strings.Contains(nxtUpper, "DEBIT NOTE") && extractHeaderAmount(nxtUpper) == nil) {
+				if amt, entryDate, _, nextJ := findLookaheadAmountAndDate(allLines, j, parsedDate, "TO "); amt != nil {
+					ps.RawItems = append(ps.RawItems, parsedLedgerItem{
+						Date: entryDate, TxnType: "debit_note", Category: "other",
+						ItemName: "RATE DIFFERENCE DEBIT NOTE", Amount: *amt, BillNo: lastBillNo,
+						ParsingNotes: "debit_note_header",
+					})
+					j = nextJ
+					continue
+				}
+			} else if tdsWordRe.MatchString(nxtUpper) && !strings.Contains(nxtUpper, "DEDUCTED") && !strings.Contains(nxtUpper, ".") {
+				if amt, entryDate, rawLine, nextJ := findLookaheadAmountAndDate(allLines, j, parsedDate, "TO "); amt != nil {
+					ps.TDSEntries = append(ps.TDSEntries, parsedLedgerAmountEntry{
+						Date: entryDate, Amount: *amt, BillNo: lastBillNo, Raw: nxt + " | " + rawLine,
+					})
+					j = nextJ
+					continue
+				}
+			} else if strings.HasPrefix(nxtUpper, "CLOSING BALANCE") {
+				if amt := extractHeaderAmount(nxtUpper); amt != nil {
+					val := *amt
+					ps.ClosingBalance = &val
+				} else if amt, _, _, nextJ := findLookaheadAmountAndDate(allLines, j, parsedDate, ""); amt != nil {
+					val := *amt
+					ps.ClosingBalance = &val
+					j = nextJ
+					continue
+				}
+			}
+
 			if toTdsRe.MatchString(nxtUpper) || strings.HasPrefix(nxtUpper, "TO TDS") {
 				tokens := strings.Fields(nxt)
 				if _, amtTok := findLastAmountToken(tokens); amtTok != "" {
@@ -465,6 +523,7 @@ func parseStatementLines(allLines []string) *parsedStatement {
 }
 
 func extractProviderMetadata(lines []string, ps *parsedStatement) {
+	prevNonEmpty := ""
 	for _, raw := range lines {
 		s := strings.TrimSpace(raw)
 		if s == "" {
@@ -477,12 +536,43 @@ func extractProviderMetadata(lines []string, ps *parsedStatement) {
 		if strings.Contains(upper, "LEDGER ACCOUNT") {
 			if idx := strings.Index(s, ":"); idx != -1 {
 				ps.AccountHolder = strings.TrimSpace(s[idx+1:])
+			} else if upper == "LEDGER ACCOUNT" && ps.AccountHolder == "" && prevNonEmpty != "" && prevNonEmpty != ps.ProviderName {
+				ps.AccountHolder = prevNonEmpty
 			}
 		}
 		if strings.Contains(upper, " TO ") && dateHeaderRe.MatchString(s) {
 			ps.LedgerPeriod = s
 		}
+		prevNonEmpty = s
 	}
+}
+
+func findLookaheadAmountAndDate(allLines []string, startIdx int, defaultDate time.Time, prefixHint string) (*float64, time.Time, string, int) {
+	entryDate := defaultDate
+	limit := startIdx + 3
+	if limit >= len(allLines) {
+		limit = len(allLines) - 1
+	}
+	for k := startIdx + 1; k <= limit; k++ {
+		cand := strings.TrimSpace(allLines[k])
+		if cand == "" {
+			continue
+		}
+		candUpper := strings.ToUpper(cand)
+		if dm := dateHeaderRe.FindStringSubmatchIndex(cand); dm != nil {
+			if d, ok := parseLedgerDate(cand[dm[2]:dm[3]]); ok {
+				entryDate = d
+			}
+			continue
+		}
+		if prefixHint != "" && !strings.HasPrefix(candUpper, prefixHint) {
+			continue
+		}
+		if amt := extractHeaderAmount(candUpper); amt != nil && strings.Contains(candUpper, ".") {
+			return amt, entryDate, cand, k + 1
+		}
+	}
+	return nil, entryDate, "", startIdx + 1
 }
 
 func parseLedgerDate(s string) (time.Time, bool) {

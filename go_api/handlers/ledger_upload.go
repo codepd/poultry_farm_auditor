@@ -673,6 +673,7 @@ func ListDocumentUploadsHandler(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	cfg := config.Load()
+	creds, credErr := utils.ResolveAWSCredentials(cfg.AWSProfile)
 	var records []DocumentUploadRecord
 	for rows.Next() {
 		var rec DocumentUploadRecord
@@ -692,8 +693,10 @@ func ListDocumentUploadsHandler(w http.ResponseWriter, r *http.Request) {
 
 		populateNullableUploadFields(&rec, versionID, contentType, sha256Hash, errMsg, fileSize, docYear, docMonth, uploadedBy, ledgerParseID, parseResultRaw)
 
-		if urlStr, urlErr := utils.S3PresignGetURL(rec.S3Bucket, cfg.AWSRegion, cfg.AWSProfile, rec.S3Key, 1*time.Hour); urlErr == nil {
-			rec.DownloadURL = urlStr
+		if credErr == nil {
+			if urlStr, urlErr := utils.S3PresignGetURLWithCreds(creds, rec.S3Bucket, cfg.AWSRegion, rec.S3Key, 1*time.Hour); urlErr == nil {
+				rec.DownloadURL = urlStr
+			}
 		}
 		records = append(records, rec)
 	}
