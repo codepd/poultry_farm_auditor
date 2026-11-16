@@ -165,6 +165,10 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 		return nil, err
 	}
 
+	if role == "OTHER_USER" {
+		perm.CanViewCharts = true
+	}
+
 	return &perm, nil
 }
 
@@ -208,7 +212,7 @@ func defaultRolePermissions(tenantUUID uuid.UUID, role string) *models.RolePermi
 			CanEditTransactions:    true,
 			CanApproveTransactions: false,
 			CanManageUsers:         false,
-			CanViewCharts:          false,
+			CanViewCharts:          true,
 		}
 	default:
 		return &models.RolePermission{
