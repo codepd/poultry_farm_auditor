@@ -101,6 +101,12 @@ type parsedStatement struct {
 // ParseAndCommitLedgerPDF extracts text from a PDF ledger natively in Go,
 // classifies items/payments/discounts/TDS, and optionally commits to PostgreSQL.
 func ParseAndCommitLedgerPDF(filePath string, tenantID uuid.UUID, commit bool, fallbackYear int, fallbackMonth int) (map[string]interface{}, error) {
+	return ParseAndCommitLedgerPDFWithMode(filePath, tenantID, commit, fallbackYear, fallbackMonth, "append_file")
+}
+
+// ParseAndCommitLedgerPDFWithMode extracts text from a PDF ledger natively in Go
+// and optionally commits to PostgreSQL using importMode ("append_file" or "replace_month").
+func ParseAndCommitLedgerPDFWithMode(filePath string, tenantID uuid.UUID, commit bool, fallbackYear int, fallbackMonth int, importMode string) (map[string]interface{}, error) {
 	lines, err := extractPDFLines(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read PDF: %v", err)
@@ -197,7 +203,7 @@ func ParseAndCommitLedgerPDF(filePath string, tenantID uuid.UUID, commit bool, f
 
 	ledgerParseID, err := commitParsedLedgerToDB(
 		tenantID, pdfName, year, month, summary, parsed,
-		eggsLargeQty, eggsMediumQty, eggsSmallQty, feedsTotalKg,
+		eggsLargeQty, eggsMediumQty, eggsSmallQty, feedsTotalKg, importMode,
 	)
 	if err != nil {
 		return result, fmt.Errorf("failed to commit parsed ledger: %v", err)
@@ -845,6 +851,15 @@ func round2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
+func buildLedgerDeleteQuery(importMode string, tenantID uuid.UUID, year int, month int, importNote string) (string, []interface{}) {
+	if importMode == "replace_month" && year > 0 && month >= 1 && month <= 12 {
+		return `DELETE FROM transactions WHERE tenant_id = $1 AND EXTRACT(YEAR FROM transaction_date) = $2 AND EXTRACT(MONTH FROM transaction_date) = $3 AND notes LIKE 'Ledger import: %'`,
+			[]interface{}{tenantID, year, month}
+	}
+	return `DELETE FROM transactions WHERE tenant_id = $1 AND notes = $2`,
+		[]interface{}{tenantID, importNote}
+}
+
 func commitParsedLedgerToDB(
 	tenantID uuid.UUID,
 	pdfName string,
@@ -853,6 +868,7 @@ func commitParsedLedgerToDB(
 	summary map[string]interface{},
 	ps *parsedStatement,
 	eggsLargeQty, eggsMediumQty, eggsSmallQty, feedsTotalKg float64,
+	importMode string,
 ) (int, error) {
 	tx, err := database.DB.Begin()
 	if err != nil {
@@ -912,7 +928,8 @@ func commitParsedLedgerToDB(
 	}
 
 	importNote := "Ledger import: " + pdfName
-	if _, err := tx.Exec(`DELETE FROM transactions WHERE tenant_id = $1 AND notes = $2`, tenantID, importNote); err != nil {
+	delQuery, delArgs := buildLedgerDeleteQuery(importMode, tenantID, year, month, importNote)
+	if _, err := tx.Exec(delQuery, delArgs...); err != nil {
 		return 0, err
 	}
 
