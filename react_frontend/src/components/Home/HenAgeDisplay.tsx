@@ -158,11 +158,11 @@ const HenAgeDisplay: React.FC = () => {
             </div>
           </div>
 
-          {/* Individual Batches */}
+          {/* Individual Batches (active batches only) */}
           <div className="batches-section">
             <h3>Batch Details</h3>
             <div className="batches-grid">
-              {batches.map((batch) => {
+              {batches.filter((b) => (b.current_count ?? 0) > 0).map((batch) => {
                 const age = getCalculatedAge(batch);
                 const category = getAgeCategory(age.weeks);
                 return (

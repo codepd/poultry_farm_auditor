@@ -29,6 +29,7 @@ const HenBatchesPage: React.FC = () => {
     notes: '',
   });
   const [showSaleForm, setShowSaleForm] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [saleBatchId, setSaleBatchId] = useState<number | null>(null);
   const [saleFormData, setSaleFormData] = useState({
     sale_date: new Date().toISOString().split('T')[0],
@@ -621,7 +622,7 @@ const HenBatchesPage: React.FC = () => {
           </div>
 
           <div className="batches-grid">
-            {batches.map((batch) => {
+            {(showArchived ? batches : batches.filter((b) => (b?.current_count ?? 0) > 0)).map((batch) => {
               const age = getCalculatedAge(batch);
               const category = getAgeCategory(age.weeks);
               return (
@@ -726,6 +727,18 @@ const HenBatchesPage: React.FC = () => {
               );
             })}
           </div>
+          {batches.some((b) => (b?.current_count ?? 0) <= 0) && (
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              <button
+                type="button"
+                className="cancel-btn"
+                onClick={() => setShowArchived((prev) => !prev)}
+              >
+                {showArchived ? t('batches.hideArchived') : t('batches.showArchived')} (
+                {batches.filter((b) => (b?.current_count ?? 0) <= 0).length})
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

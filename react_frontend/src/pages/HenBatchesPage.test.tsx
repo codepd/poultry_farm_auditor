@@ -82,4 +82,40 @@ describe('HenBatchesPage alert prefill flow', () => {
     const ageWeeksInput = numberInputs[2] as HTMLInputElement;
     expect(ageWeeksInput.value).toBe('0');
   });
+
+  test('hides sold batches (current_count === 0) by default and toggles them open', async () => {
+    (henBatchesAPI.getHenBatches as jest.Mock).mockResolvedValue([
+      {
+        id: 1,
+        batch_name: 'Active Batch',
+        initial_count: 11000,
+        current_count: 10918,
+        age_weeks: 0,
+        age_days: 0,
+        date_added: '2026-04-29',
+      },
+      {
+        id: 2,
+        batch_name: 'Sold Batch 1',
+        initial_count: 10000,
+        current_count: 0,
+        age_weeks: 80,
+        age_days: 0,
+        date_added: '2025-10-06',
+      },
+    ]);
+
+    render(<HenBatchesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Active Batch')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Sold Batch 1')).not.toBeInTheDocument();
+
+    const toggleBtn = screen.getByText(/batches\.showArchived/i);
+    fireEvent.click(toggleBtn);
+
+    expect(screen.getByText('Sold Batch 1')).toBeInTheDocument();
+    expect(screen.getByText(/batches\.hideArchived/i)).toBeInTheDocument();
+  });
 });
