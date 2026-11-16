@@ -8,6 +8,15 @@ interface DailyQuickLogModalProps {
 }
 
 type QuickTab = 'egg' | 'expense' | 'mortality';
+type ExpenseCategory = 'FEED' | 'MEDICINE' | 'OTHER';
+
+const CUSTOM_ITEM_VALUE = '__CUSTOM__';
+
+const EXPENSE_ITEM_OPTIONS: Record<ExpenseCategory, string[]> = {
+  FEED: ['LAYER MASH', 'PRE-LAYER MASH', 'GROWER MASH', 'CHICK MASH'],
+  MEDICINE: ['FEED SUPPLEMENTS', 'D3 FORTE', 'VETMULIN', 'OXYCYCLINE', 'TIAZIN', 'BPPS FORTE', 'CTC', 'SHELL GRIT'],
+  OTHER: ['LABOR', 'ELECTRICITY', 'MAINTENANCE', 'TRANSPORT', 'DIESEL / GENERATOR'],
+};
 
 const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSaved }) => {
   const { t } = useLanguage();
@@ -20,8 +29,9 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
   const [ratePerEgg, setRatePerEgg] = useState('');
 
   // Feed / Expense state
-  const [expenseCategory, setExpenseCategory] = useState<'FEED' | 'MEDICINE' | 'OTHER'>('FEED');
-  const [itemName, setItemName] = useState('');
+  const [expenseCategory, setExpenseCategory] = useState<ExpenseCategory>('FEED');
+  const [selectedItemOption, setSelectedItemOption] = useState<string>(EXPENSE_ITEM_OPTIONS.FEED[0]);
+  const [customItemName, setCustomItemName] = useState('');
   const [amount, setAmount] = useState('');
 
   // Mortality state
@@ -73,7 +83,9 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
         });
       } else if (activeTab === 'expense') {
         const total = parseFloat(amount);
-        if (!itemName.trim() || !total || total <= 0) {
+        const resolvedItemName =
+          selectedItemOption === CUSTOM_ITEM_VALUE ? customItemName.trim() : selectedItemOption;
+        if (!resolvedItemName || !total || total <= 0) {
           setError('Please enter item description and amount');
           setSaving(false);
           return;
@@ -82,7 +94,7 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
           transaction_date: date,
           transaction_type: expenseCategory === 'FEED' || expenseCategory === 'MEDICINE' ? 'PURCHASE' : 'EXPENSE',
           category: expenseCategory,
-          item_name: itemName.trim().toUpperCase(),
+          item_name: resolvedItemName.toUpperCase(),
           amount: total,
         });
       } else {
@@ -104,7 +116,7 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
       setSuccess(t('quickLog.savedSuccess'));
       setEggCount('');
       setRatePerEgg('');
-      setItemName('');
+      setCustomItemName('');
       setAmount('');
       setMortalityCount('');
       setMortalityNotes('');
@@ -251,7 +263,12 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
                 <span>{t('quickLog.category')}</span>
                 <select
                   value={expenseCategory}
-                  onChange={(e) => setExpenseCategory(e.target.value as any)}
+                  onChange={(e) => {
+                    const nextCat = e.target.value as ExpenseCategory;
+                    setExpenseCategory(nextCat);
+                    setSelectedItemOption(EXPENSE_ITEM_OPTIONS[nextCat][0]);
+                    setCustomItemName('');
+                  }}
                   className="password-input"
                 >
                   <option value="FEED">FEED</option>
@@ -261,15 +278,39 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
               </label>
               <label>
                 <span>{t('quickLog.itemName')}</span>
-                <input
-                  type="text"
-                  value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
-                  placeholder="e.g. LAYER MASH / ELECTRICITY / LABOR"
+                <select
+                  value={selectedItemOption}
+                  onChange={(e) => setSelectedItemOption(e.target.value)}
                   className="password-input"
-                  required
-                />
+                  aria-label="Expense item"
+                >
+                  {EXPENSE_ITEM_OPTIONS[expenseCategory].map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_ITEM_VALUE}>Other (Custom)...</option>
+                </select>
               </label>
+              {selectedItemOption === CUSTOM_ITEM_VALUE && (
+                <label>
+                  <span>Custom {expenseCategory === 'FEED' ? 'Feed' : expenseCategory === 'MEDICINE' ? 'Medicine' : 'Expense'} Name</span>
+                  <input
+                    type="text"
+                    value={customItemName}
+                    onChange={(e) => setCustomItemName(e.target.value)}
+                    placeholder={
+                      expenseCategory === 'FEED'
+                        ? 'e.g. STARTER CRUMBLE'
+                        : expenseCategory === 'MEDICINE'
+                        ? 'e.g. LIVER TONIC'
+                        : 'e.g. WATER TANKER'
+                    }
+                    className="password-input"
+                    required
+                  />
+                </label>
+              )}
               <label>
                 <span>{t('quickLog.amount')}</span>
                 <input
