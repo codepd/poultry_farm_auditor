@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import api from '../services/api';
+import api, { FeedPriceValidationResult } from '../services/api';
 import PriceLineChart from '../components/PriceHistory/PriceLineChart';
 import { parseDateValue } from '../utils/dateUtils';
 import './PriceHistoryPage.css';
@@ -38,6 +38,7 @@ const PriceHistoryPage: React.FC = () => {
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
   const [selectedEggItem, setSelectedEggItem] = useState<string>('');
   const [selectedFeedItem, setSelectedFeedItem] = useState<string>('');
+  const [feedValidation, setFeedValidation] = useState<FeedPriceValidationResult | null>(null);
 
   // Check if user can edit (OWNER, CO_OWNER, ADMIN, or MANAGER role)
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
@@ -82,6 +83,14 @@ const PriceHistoryPage: React.FC = () => {
       const eggData = Array.isArray(eggRes.data.data) ? eggRes.data.data : [];
       const feedData = Array.isArray(feedRes.data.data) ? feedRes.data.data : [];
       setPrices([...eggData, ...feedData]);
+      try {
+        const valRes = await api.get<{ success: boolean; data: FeedPriceValidationResult }>('/prices/feed-validation');
+        if (valRes?.data?.data && Array.isArray(valRes.data.data.rows)) {
+          setFeedValidation(valRes.data.data);
+        }
+      } catch {
+        // Non-blocking: feed validation is optional if ledger data is absent
+      }
     } catch (err: any) {
       setError('Failed to load price history');
       console.error(err);
@@ -474,6 +483,91 @@ const PriceHistoryPage: React.FC = () => {
               />
             </div>
           </div>
+
+          {feedValidation && Array.isArray(feedValidation.rows) && feedValidation.rows.length > 0 && (() => {
+            const visibleRows = feedValidation.rows.filter((row) => {
+              if (!selectedYear) return true;
+              return row.transaction_date.startsWith(String(selectedYear));
+            });
+            if (visibleRows.length === 0) return null;
+            const alignedCount = visibleRows.filter((r) => r.status === 'ALIGNED').length;
+            const mismatchCount = visibleRows.filter((r) => r.status === 'MISMATCH').length;
+            const missingCount = visibleRows.filter((r) => r.status === 'NO_SHEET_RATE').length;
+            return (
+              <div className="chart-pane" style={{ marginTop: '1.5rem' }}>
+                <div className="pane-header pane-header-row">
+                  <div>
+                    <h2>Feed Price Alignment (Ledger vs Rate Sheet)</h2>
+                    <p className="pane-subtitle">
+                      Compares monthly ledger feed purchase rates (₹/kg) against stored feed sheet bag rates (÷ 75).
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className="status-badge" style={{ background: '#dcfce7', color: '#166534', padding: '0.25rem 0.6rem', borderRadius: '999px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      Aligned: {alignedCount}
+                    </span>
+                    <span className="status-badge" style={{ background: '#fee2e2', color: '#991b1b', padding: '0.25rem 0.6rem', borderRadius: '999px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      Mismatch: {mismatchCount}
+                    </span>
+                    <span className="status-badge" style={{ background: '#f1f5f9', color: '#475569', padding: '0.25rem 0.6rem', borderRadius: '999px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      No Sheet Rate: {missingCount}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="prices-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Feed Type</th>
+                        <th>Ledger ₹/kg</th>
+                        <th>Sheet Bag Rate</th>
+                        <th>Sheet ₹/kg (÷ 75)</th>
+                        <th>Diff</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.slice(0, 25).map((row) => (
+                        <tr key={row.transaction_id}>
+                          <td>{row.transaction_date}</td>
+                          <td>{tItem(row.item_name)}</td>
+                          <td>₹{row.ledger_rate_per_kg.toFixed(2)}</td>
+                          <td>{row.sheet_bag_rate ? `₹${row.sheet_bag_rate.toFixed(2)} (${row.sheet_date})` : '-'}</td>
+                          <td>{row.sheet_rate_per_kg ? `₹${row.sheet_rate_per_kg.toFixed(2)}` : '-'}</td>
+                          <td>{row.sheet_rate_per_kg && row.diff_per_kg !== undefined ? `₹${row.diff_per_kg.toFixed(2)}` : '-'}</td>
+                          <td>
+                            <span
+                              style={{
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '999px',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                background:
+                                  row.status === 'ALIGNED'
+                                    ? '#dcfce7'
+                                    : row.status === 'MISMATCH'
+                                      ? '#fee2e2'
+                                      : '#f1f5f9',
+                                color:
+                                  row.status === 'ALIGNED'
+                                    ? '#166534'
+                                    : row.status === 'MISMATCH'
+                                      ? '#991b1b'
+                                      : '#475569',
+                              }}
+                            >
+                              {row.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </>
       ) : (
         <div className="table-panes">

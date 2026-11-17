@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"poultry-farm-api/database"
 	"poultry-farm-api/middleware"
@@ -678,5 +679,216 @@ func GetMonthlyAverageEggPrices(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data":    monthlyAverages,
+	})
+}
+
+type FeedPriceValidationRow struct {
+	TransactionID   int     `json:"transaction_id"`
+	TransactionDate string  `json:"transaction_date"`
+	ItemName        string  `json:"item_name"`
+	Quantity        float64 `json:"quantity"`
+	Amount          float64 `json:"amount"`
+	LedgerRatePerKg float64 `json:"ledger_rate_per_kg"`
+	SheetDate       string  `json:"sheet_date,omitempty"`
+	SheetBagRate    float64 `json:"sheet_bag_rate,omitempty"`
+	SheetRatePerKg  float64 `json:"sheet_rate_per_kg,omitempty"`
+	DiffPerKg       float64 `json:"diff_per_kg,omitempty"`
+	DiffPct         float64 `json:"diff_pct,omitempty"`
+	Status          string  `json:"status"` // ALIGNED, MISMATCH, NO_SHEET_RATE
+}
+
+type FeedPriceValidationSummary struct {
+	Total       int `json:"total"`
+	Aligned     int `json:"aligned"`
+	Mismatch    int `json:"mismatch"`
+	NoSheetRate int `json:"no_sheet_rate"`
+}
+
+type FeedPriceValidationResult struct {
+	Summary FeedPriceValidationSummary `json:"summary"`
+	Rows    []FeedPriceValidationRow   `json:"rows"`
+}
+
+func normalizeFeedItemName(raw string) string {
+	upper := strings.ToUpper(strings.TrimSpace(raw))
+	switch {
+	case upper == "PLM" || strings.Contains(upper, "PRE-LAYER") || strings.Contains(upper, "PRE LAYER"):
+		return "PRE-LAYER MASH"
+	case upper == "LM" || strings.Contains(upper, "LAYER"):
+		return "LAYER MASH"
+	case upper == "GM" || strings.Contains(upper, "GROWER"):
+		return "GROWER MASH"
+	case upper == "CM" || strings.Contains(upper, "CHICK"):
+		return "CHICK MASH"
+	default:
+		return upper
+	}
+}
+
+// EvaluateFeedPriceAlignment compares a ledger feed rate (₹/kg) against a sheet bag rate (₹/75kg bag).
+func EvaluateFeedPriceAlignment(ledgerPerKg, sheetBagRate float64) (sheetPerKg, diffPerKg, diffPct float64, status string) {
+	if sheetBagRate <= 0 || ledgerPerKg <= 0 {
+		return 0, 0, 0, "NO_SHEET_RATE"
+	}
+	sheetPerKg = math.Round((sheetBagRate/75.0)*100) / 100
+	diffPerKg = math.Round((ledgerPerKg-sheetPerKg)*100) / 100
+	diffPct = math.Round(((diffPerKg/sheetPerKg)*100)*100) / 100
+	if math.Abs(diffPerKg) <= 0.50 || math.Abs(diffPct) <= 2.0 {
+		status = "ALIGNED"
+	} else {
+		status = "MISMATCH"
+	}
+	return sheetPerKg, diffPerKg, diffPct, status
+}
+
+// ValidateFeedPricesForTenant compares ledger FEED transactions against stored price_history FEED bag rates (÷ 75).
+func ValidateFeedPricesForTenant(tenantID uuid.UUID, year, month int) (*FeedPriceValidationResult, error) {
+	query := `
+		SELECT id, transaction_date, COALESCE(item_name, ''), COALESCE(quantity, 0), COALESCE(rate, 0), COALESCE(amount, 0)
+		FROM transactions
+		WHERE tenant_id = $1 AND category = 'FEED'
+	`
+	args := []interface{}{tenantID}
+	argIdx := 2
+	if year > 0 {
+		query += fmt.Sprintf(" AND EXTRACT(YEAR FROM transaction_date) = $%d", argIdx)
+		args = append(args, year)
+		argIdx++
+	}
+	if month >= 1 && month <= 12 {
+		query += fmt.Sprintf(" AND EXTRACT(MONTH FROM transaction_date) = $%d", argIdx)
+		args = append(args, month)
+		argIdx++
+	}
+	query += " ORDER BY transaction_date DESC, id DESC"
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := &FeedPriceValidationResult{
+		Rows: []FeedPriceValidationRow{},
+	}
+
+	for rows.Next() {
+		var txID int
+		var txDate, rawItem string
+		var qty, rate, amount float64
+		if err := rows.Scan(&txID, &txDate, &rawItem, &qty, &rate, &amount); err != nil {
+			continue
+		}
+
+		// Ledger feed rates are typically ₹/kg (< 500); if >= 500 it's a bag rate.
+		ledgerPerKg := 0.0
+		if rate > 0 && rate < 500 {
+			ledgerPerKg = rate
+		} else if rate >= 500 {
+			ledgerPerKg = rate / 75.0
+		} else if qty > 0 && amount > 0 {
+			computed := amount / qty
+			if computed >= 500 {
+				ledgerPerKg = computed / 75.0
+			} else {
+				ledgerPerKg = computed
+			}
+		}
+		if ledgerPerKg <= 0 {
+			continue
+		}
+		ledgerPerKg = math.Round(ledgerPerKg*100) / 100
+
+		dateOnly := txDate
+		if len(dateOnly) > 10 {
+			dateOnly = dateOnly[:10]
+		}
+		normItem := normalizeFeedItemName(rawItem)
+
+		valRow := FeedPriceValidationRow{
+			TransactionID:   txID,
+			TransactionDate: dateOnly,
+			ItemName:        normItem,
+			Quantity:        qty,
+			Amount:          amount,
+			LedgerRatePerKg: ledgerPerKg,
+			Status:          "NO_SHEET_RATE",
+		}
+
+		var sheetDate string
+		var sheetBagRate float64
+		err := database.DB.QueryRow(`
+			SELECT price_date, price
+			FROM price_history
+			WHERE tenant_id = $1
+			  AND price_type = 'FEED'
+			  AND UPPER(item_name) = $2
+			  AND price_date <= $3
+			ORDER BY price_date DESC
+			LIMIT 1
+		`, tenantID, normItem, dateOnly).Scan(&sheetDate, &sheetBagRate)
+		if err == nil && sheetBagRate > 0 {
+			if len(sheetDate) > 10 {
+				sheetDate = sheetDate[:10]
+			}
+			sheetPerKg, diffPerKg, diffPct, status := EvaluateFeedPriceAlignment(ledgerPerKg, sheetBagRate)
+			valRow.SheetDate = sheetDate
+			valRow.SheetBagRate = sheetBagRate
+			valRow.SheetRatePerKg = sheetPerKg
+			valRow.DiffPerKg = diffPerKg
+			valRow.DiffPct = diffPct
+			valRow.Status = status
+		}
+
+		result.Summary.Total++
+		switch valRow.Status {
+		case "ALIGNED":
+			result.Summary.Aligned++
+		case "MISMATCH":
+			result.Summary.Mismatch++
+		default:
+			result.Summary.NoSheetRate++
+		}
+		result.Rows = append(result.Rows, valRow)
+	}
+
+	return result, nil
+}
+
+// GetFeedPriceValidation validates ledger FEED transaction rates against stored price_history sheet rates.
+func GetFeedPriceValidation(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant ID")
+		return
+	}
+
+	year := 0
+	month := 0
+	if yStr := r.URL.Query().Get("year"); yStr != "" {
+		if y, err := strconv.Atoi(yStr); err == nil && y > 0 {
+			year = y
+		}
+	}
+	if mStr := r.URL.Query().Get("month"); mStr != "" {
+		if m, err := strconv.Atoi(mStr); err == nil && m >= 1 && m <= 12 {
+			month = m
+		}
+	}
+
+	result, err := ValidateFeedPricesForTenant(tenantID, year, month)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to validate feed prices against ledger")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    result,
 	})
 }

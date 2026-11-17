@@ -231,3 +231,40 @@ func TestIsValidAssignableRole(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeFeedItemName(t *testing.T) {
+	cases := map[string]string{
+		"LM":             "LAYER MASH",
+		"Layer Mash":     "LAYER MASH",
+		"PLM":            "PRE-LAYER MASH",
+		"Pre Layer Mash": "PRE-LAYER MASH",
+		"GM":             "GROWER MASH",
+		"CM":             "CHICK MASH",
+		"Custom Feed":    "CUSTOM FEED",
+	}
+	for input, expected := range cases {
+		if got := normalizeFeedItemName(input); got != expected {
+			t.Errorf("normalizeFeedItemName(%q) = %q, want %q", input, got, expected)
+		}
+	}
+}
+
+func TestEvaluateFeedPriceAlignment(t *testing.T) {
+	// 2250 / 75 = 30.00/kg -> ledger 30.20/kg is within 0.50/kg => ALIGNED
+	sheetPerKg, diffPerKg, _, status := EvaluateFeedPriceAlignment(30.20, 2250)
+	if sheetPerKg != 30.00 || diffPerKg != 0.20 || status != "ALIGNED" {
+		t.Errorf("expected ALIGNED (30.00, 0.20), got (%v, %v, %s)", sheetPerKg, diffPerKg, status)
+	}
+
+	// 2250 / 75 = 30.00/kg -> ledger 34.00/kg is > 0.50/kg and > 2% => MISMATCH
+	_, diff2, _, status2 := EvaluateFeedPriceAlignment(34.00, 2250)
+	if diff2 != 4.00 || status2 != "MISMATCH" {
+		t.Errorf("expected MISMATCH (diff=4.00), got (%v, %s)", diff2, status2)
+	}
+
+	// Missing sheet rate => NO_SHEET_RATE
+	_, _, _, status3 := EvaluateFeedPriceAlignment(30.00, 0)
+	if status3 != "NO_SHEET_RATE" {
+		t.Errorf("expected NO_SHEET_RATE, got %s", status3)
+	}
+}

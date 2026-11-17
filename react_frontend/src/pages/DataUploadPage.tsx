@@ -142,6 +142,21 @@ const DataUploadPage: React.FC = () => {
     }
   };
 
+  const handleCommitFeedCard = async () => {
+    if (!selectedFile) return;
+    setCommitting(true);
+    setError('');
+    try {
+      const committedResp = await adminAPI.uploadLedger(selectedFile, true);
+      setArchivedFeedCard(committedResp);
+      fetchUploadHistory();
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to save feed prices');
+    } finally {
+      setCommitting(false);
+    }
+  };
+
   const handleCommit = async () => {
     setCommitting(true);
     setError('');
@@ -240,12 +255,104 @@ const DataUploadPage: React.FC = () => {
 
       {archivedFeedCard && (
         <div className="commit-success-card">
-          <div className="success-icon">☁️</div>
-          <h3>Feed Price Sheet Saved!</h3>
+          <div className="success-icon">{archivedFeedCard.upload_status === 'COMMITTED' ? '✅' : '🏷️'}</div>
+          <h3>
+            {archivedFeedCard.upload_status === 'COMMITTED'
+              ? 'Feed Prices Saved & Validated!'
+              : archivedFeedCard.feed_prices
+                ? 'Feed Price Card Extracted — Ready to Save'
+                : 'Feed Price Sheet Saved!'}
+          </h3>
           <p>
             <strong>{archivedFeedCard.file_name}</strong> has been safely backed up to your saved documents.
+            {archivedFeedCard.price_date && (
+              <> Effective date: <strong>{archivedFeedCard.price_date}</strong>.</>
+            )}
           </p>
+
+          {archivedFeedCard.feed_prices && (
+            <div style={{ margin: '1rem 0', textAlign: 'left' }}>
+              <table className="history-table" style={{ width: '100%', marginBottom: '1rem' }}>
+                <thead>
+                  <tr>
+                    <th>Feed Type</th>
+                    <th>Sheet Rate (per 75kg bag)</th>
+                    <th>Equivalent (₹/kg)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(archivedFeedCard.feed_prices).map(([item, bagRate]: [string, any]) => (
+                    <tr key={item}>
+                      <td><strong>{item}</strong></td>
+                      <td>₹{Number(bagRate).toFixed(2)}</td>
+                      <td>₹{(Number(bagRate) / 75).toFixed(2)}/kg</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {archivedFeedCard.validation && (
+            <div style={{ margin: '1rem 0', textAlign: 'left' }}>
+              <h4 style={{ marginBottom: '0.5rem' }}>
+                Monthly Ledger Alignment ({archivedFeedCard.validation.summary?.aligned || 0} aligned,{' '}
+                {archivedFeedCard.validation.summary?.mismatch || 0} mismatch,{' '}
+                {archivedFeedCard.validation.summary?.no_sheet_rate || 0} missing sheet rate)
+              </h4>
+              {archivedFeedCard.validation.rows?.length > 0 ? (
+                <table className="history-table" style={{ width: '100%', marginBottom: '1rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Feed</th>
+                      <th>Ledger ₹/kg</th>
+                      <th>Sheet ₹/kg</th>
+                      <th>Diff</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archivedFeedCard.validation.rows.map((row: any) => (
+                      <tr key={row.transaction_id}>
+                        <td>{row.transaction_date}</td>
+                        <td>{row.item_name}</td>
+                        <td>₹{Number(row.ledger_rate_per_kg).toFixed(2)}</td>
+                        <td>{row.sheet_rate_per_kg ? `₹${Number(row.sheet_rate_per_kg).toFixed(2)}` : '-'}</td>
+                        <td>{row.diff_per_kg !== undefined && row.sheet_rate_per_kg ? `₹${Number(row.diff_per_kg).toFixed(2)}` : '-'}</td>
+                        <td>
+                          <span className={`upload-status-pill status-${row.status === 'ALIGNED' ? 'committed' : row.status === 'MISMATCH' ? 'error' : 'archived'}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+                  No ledger FEED purchases found in this month to compare against.
+                </p>
+              )}
+            </div>
+          )}
+
+          {archivedFeedCard.ocr_warning && (
+            <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+              Note: {archivedFeedCard.ocr_warning}
+            </p>
+          )}
+
           <div className="success-actions">
+            {archivedFeedCard.upload_status === 'PREVIEWED' && selectedFile && (
+              <button
+                className="view-btn"
+                onClick={handleCommitFeedCard}
+                disabled={committing}
+              >
+                {committing ? 'Saving...' : 'Confirm & Save to Price History'}
+              </button>
+            )}
             {archivedFeedCard.download_url && (
               <a
                 href={archivedFeedCard.download_url}

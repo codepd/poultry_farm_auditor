@@ -177,4 +177,73 @@ describe('PriceLineChart Year-on-Year colors and PriceHistoryPage September egg 
       expect(screen.getByTestId('chart-line-GROWER MASH (2026)')).toBeInTheDocument();
     });
   });
+
+  test('displays Feed Price Alignment panel when /prices/feed-validation returns rows', async () => {
+    (api.get as jest.Mock).mockImplementation((url: string) => {
+      if (url === '/prices?price_type=EGG') {
+        return Promise.resolve({ data: { success: true, data: [] } });
+      }
+      if (url === '/prices?price_type=FEED') {
+        return Promise.resolve({
+          data: {
+            success: true,
+            data: [
+              { id: 4, tenant_id: 't1', price_date: '2026-10-01', price_type: 'FEED', item_name: 'LAYER MASH', price: 2250, created_at: '2026-10-01T00:00:00Z' },
+            ],
+          },
+        });
+      }
+      if (url === '/prices/feed-validation') {
+        return Promise.resolve({
+          data: {
+            success: true,
+            data: {
+              summary: { total: 2, aligned: 1, mismatch: 1, no_sheet_rate: 0 },
+              rows: [
+                {
+                  transaction_id: 11,
+                  transaction_date: '2026-10-05',
+                  item_name: 'LAYER MASH',
+                  quantity: 1000,
+                  amount: 30000,
+                  ledger_rate_per_kg: 30.0,
+                  sheet_date: '2026-10-01',
+                  sheet_bag_rate: 2250,
+                  sheet_rate_per_kg: 30.0,
+                  diff_per_kg: 0,
+                  diff_pct: 0,
+                  status: 'ALIGNED',
+                },
+                {
+                  transaction_id: 12,
+                  transaction_date: '2026-10-12',
+                  item_name: 'GROWER MASH',
+                  quantity: 500,
+                  amount: 17000,
+                  ledger_rate_per_kg: 34.0,
+                  sheet_date: '2026-10-01',
+                  sheet_bag_rate: 2250,
+                  sheet_rate_per_kg: 30.0,
+                  diff_per_kg: 4.0,
+                  diff_pct: 13.33,
+                  status: 'MISMATCH',
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { success: true, data: [] } });
+    });
+
+    render(<PriceHistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Feed Price Alignment (Ledger vs Rate Sheet)')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Aligned: 1')).toBeInTheDocument();
+    expect(screen.getByText('Mismatch: 1')).toBeInTheDocument();
+    expect(screen.getByText('ALIGNED')).toBeInTheDocument();
+    expect(screen.getByText('MISMATCH')).toBeInTheDocument();
+  });
 });
