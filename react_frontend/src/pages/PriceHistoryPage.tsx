@@ -36,7 +36,8 @@ const PriceHistoryPage: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [yearOnYearMode, setYearOnYearMode] = useState(false);
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
-  const [selectedItems, setSelectedItems] = useState<string[]>([]); // Filter by item names
+  const [selectedEggItem, setSelectedEggItem] = useState<string>('');
+  const [selectedFeedItem, setSelectedFeedItem] = useState<string>('');
 
   // Check if user can edit (OWNER, CO_OWNER, ADMIN, or MANAGER role)
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
@@ -194,21 +195,29 @@ const PriceHistoryPage: React.FC = () => {
     return items;
   }, [prices]);
 
-  // Initialize selected items to all items if empty
+  // Default each chart to a single primary line (LARGE EGG / LAYER MASH) for readability
   React.useEffect(() => {
-    if (selectedItems.length === 0 && eggItemNames.length > 0) {
-      setSelectedItems([...eggItemNames, ...feedItemNames]);
+    if (!selectedEggItem && eggItemNames.length > 0) {
+      const defaultEgg = eggItemNames.find((item) => item.toUpperCase() === 'LARGE EGG') || eggItemNames[0];
+      setSelectedEggItem(defaultEgg);
     }
-  }, [eggItemNames, feedItemNames, selectedItems.length]);
+  }, [eggItemNames, selectedEggItem]);
 
-  // Separate Egg and Feed prices, filtered by selected items
-  const eggPrices = prices.filter(p => 
-    p.price_type === 'EGG' && 
-    (selectedItems.length === 0 || selectedItems.includes(p.item_name))
+  React.useEffect(() => {
+    if (!selectedFeedItem && feedItemNames.length > 0) {
+      const defaultFeed = feedItemNames.find((item) => item.toUpperCase() === 'LAYER MASH') || feedItemNames[0];
+      setSelectedFeedItem(defaultFeed);
+    }
+  }, [feedItemNames, selectedFeedItem]);
+
+  // Separate Egg and Feed prices, filtered by per-chart dropdown (1 line by default, or ALL)
+  const eggPrices = prices.filter(p =>
+    p.price_type === 'EGG' &&
+    (!selectedEggItem || selectedEggItem === 'ALL' || p.item_name === selectedEggItem)
   );
-  const feedPrices = prices.filter(p => 
-    p.price_type === 'FEED' && 
-    (selectedItems.length === 0 || selectedItems.includes(p.item_name))
+  const feedPrices = prices.filter(p =>
+    p.price_type === 'FEED' &&
+    (!selectedFeedItem || selectedFeedItem === 'ALL' || p.item_name === selectedFeedItem)
   );
 
   return (
@@ -361,48 +370,6 @@ const PriceHistoryPage: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <div className="year-control-group">
-                  <label>Select Egg Items:</label>
-                  <div className="item-checkboxes">
-                    {eggItemNames.map(item => (
-                      <label key={item} className="item-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(i => i !== item));
-                            }
-                          }}
-                        />
-                        <span>{item}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="year-control-group">
-                  <label>Select Feed Items:</label>
-                  <div className="item-checkboxes">
-                    {feedItemNames.map(item => (
-                      <label key={item} className="item-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(i => i !== item));
-                            }
-                          }}
-                        />
-                        <span>{item}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
               </>
             ) : (
               <>
@@ -421,64 +388,43 @@ const PriceHistoryPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <div className="year-control-group">
-                  <label>Filter Egg Items:</label>
-                  <div className="item-checkboxes">
-                    {eggItemNames.map(item => (
-                      <label key={item} className="item-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(i => i !== item));
-                            }
-                          }}
-                        />
-                        <span>{item}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="year-control-group">
-                  <label>Filter Feed Items:</label>
-                  <div className="item-checkboxes">
-                    {feedItemNames.map(item => (
-                      <label key={item} className="item-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(i => i !== item));
-                            }
-                          }}
-                        />
-                        <span>{item}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
               </>
             )}
           </div>
 
           <div className="chart-panes">
             <div className="chart-pane">
-              <div className="pane-header">
-                <h2>{t('prices.eggPrices')}</h2>
-                <p className="pane-subtitle">
-                  {yearOnYearMode 
-                    ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
-                    : selectedYear 
-                      ? `Price trends for ${selectedYear}`
-                      : 'Price trends over time for all egg types'
-                  }
-                </p>
+              <div className="pane-header pane-header-row">
+                <div>
+                  <h2>{t('prices.eggPrices')}</h2>
+                  <p className="pane-subtitle">
+                    {yearOnYearMode 
+                      ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
+                      : selectedYear 
+                        ? `Price trends for ${selectedYear}`
+                        : selectedEggItem === 'ALL'
+                          ? 'Price trends over time for all egg types'
+                          : `Price trend for ${selectedEggItem || 'egg'}`
+                    }
+                  </p>
+                </div>
+                {eggItemNames.length > 0 && (
+                  <div className="pane-filter-control">
+                    <label htmlFor="egg-item-select">Egg Type:</label>
+                    <select
+                      id="egg-item-select"
+                      aria-label="Select Egg Type"
+                      className="year-select"
+                      value={selectedEggItem}
+                      onChange={(e) => setSelectedEggItem(e.target.value)}
+                    >
+                      {eggItemNames.map(item => (
+                        <option key={item} value={item}>{tItem(item)}</option>
+                      ))}
+                      <option value="ALL">All Egg Types</option>
+                    </select>
+                  </div>
+                )}
               </div>
               <PriceLineChart
                 prices={eggPrices}
@@ -488,16 +434,37 @@ const PriceHistoryPage: React.FC = () => {
               />
             </div>
             <div className="chart-pane">
-              <div className="pane-header">
-                <h2>{t('prices.feedPrices')}</h2>
-                <p className="pane-subtitle">
-                  {yearOnYearMode 
-                    ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
-                    : selectedYear 
-                      ? `Price trends for ${selectedYear}`
-                      : 'Price trends over time for all feed types'
-                  }
-                </p>
+              <div className="pane-header pane-header-row">
+                <div>
+                  <h2>{t('prices.feedPrices')}</h2>
+                  <p className="pane-subtitle">
+                    {yearOnYearMode 
+                      ? `Year-on-year comparison: ${selectedYears.join(' vs ')}`
+                      : selectedYear 
+                        ? `Price trends for ${selectedYear}`
+                        : selectedFeedItem === 'ALL'
+                          ? 'Price trends over time for all feed types'
+                          : `Price trend for ${selectedFeedItem || 'feed'}`
+                    }
+                  </p>
+                </div>
+                {feedItemNames.length > 0 && (
+                  <div className="pane-filter-control">
+                    <label htmlFor="feed-item-select">Feed Type:</label>
+                    <select
+                      id="feed-item-select"
+                      aria-label="Select Feed Type"
+                      className="year-select"
+                      value={selectedFeedItem}
+                      onChange={(e) => setSelectedFeedItem(e.target.value)}
+                    >
+                      {feedItemNames.map(item => (
+                        <option key={item} value={item}>{tItem(item)}</option>
+                      ))}
+                      <option value="ALL">All Feed Types</option>
+                    </select>
+                  </div>
+                )}
               </div>
               <PriceLineChart
                 prices={feedPrices}

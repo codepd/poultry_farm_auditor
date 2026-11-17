@@ -287,6 +287,26 @@
   margin-bottom: 1.5rem;
 }
 
+.pane-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.pane-filter-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pane-filter-control label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9rem;
+}
+
 .pane-header h2 {
   margin: 0 0 0.5rem 0;
   color: #333;
