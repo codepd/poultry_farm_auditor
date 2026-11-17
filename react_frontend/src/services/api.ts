@@ -629,6 +629,17 @@ export const usersAPI = {
     const response = await api.delete<{ success: boolean; message: string }>(`/users/${userId}`);
     return response.data;
   },
+  transferOwnership: async (userId: number, stepDownRole: string = 'CO_OWNER') => {
+    const response = await api.post<{ success: boolean; message: string; data: { new_owner_id: number; previous_owner_role: string } }>(
+      `/users/${userId}/transfer-ownership`,
+      { step_down_role: stepDownRole }
+    );
+    return response.data;
+  },
+  revokeInvitation: async (invitationId: number) => {
+    const response = await api.delete<{ success: boolean; message: string }>(`/users/invitations/${invitationId}`);
+    return response.data;
+  },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
     const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
     return response.data;

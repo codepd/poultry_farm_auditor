@@ -938,3 +938,140 @@ func RemoveUser(w http.ResponseWriter, r *http.Request) {
 		"message": "Member removed from farm",
 	})
 }
+
+func resolveStepDownRole(requested string) string {
+	upper := strings.ToUpper(strings.TrimSpace(requested))
+	if isValidAssignableRole(upper) {
+		return upper
+	}
+	return "CO_OWNER"
+}
+
+// TransferOwnership transfers farm ownership from the current owner to another member
+// and steps the previous owner down to step_down_role (default CO_OWNER).
+func TransferOwnership(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil || targetUserID <= 0 {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	if targetUserID == user.UserID {
+		respondWithError(w, http.StatusBadRequest, "You are already the farm owner")
+		return
+	}
+
+	var req struct {
+		StepDownRole string `json:"step_down_role"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	stepDownRole := resolveStepDownRole(req.StepDownRole)
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var callerIsOwner bool
+	err = database.DB.QueryRow(`
+		SELECT COALESCE(is_owner, false) FROM tenant_users WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, user.UserID).Scan(&callerIsOwner)
+	if err != nil || !callerIsOwner {
+		respondWithError(w, http.StatusForbidden, "Only the current farm owner can transfer ownership")
+		return
+	}
+
+	var targetExists bool
+	err = database.DB.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM tenant_users WHERE tenant_id = $1 AND user_id = $2)
+	`, tenantID, targetUserID).Scan(&targetExists)
+	if err != nil || !targetExists {
+		respondWithError(w, http.StatusNotFound, "Target member not found in this farm")
+		return
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE tenant_users SET is_owner = true, role = 'OWNER' WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, targetUserID); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to promote new owner")
+		return
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE tenant_users SET is_owner = false, role = $3 WHERE tenant_id = $1 AND user_id = $2
+	`, tenantID, user.UserID, stepDownRole); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to step down previous owner")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to commit ownership transfer")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Farm ownership transferred",
+		"data": map[string]interface{}{
+			"new_owner_id":        targetUserID,
+			"previous_owner_role": stepDownRole,
+		},
+	})
+}
+
+// RevokeInvitation cancels a pending (unaccepted) invitation for the current tenant.
+func RevokeInvitation(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "You do not have permission to manage invitations")
+		return
+	}
+
+	invID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil || invID <= 0 {
+		respondWithError(w, http.StatusBadRequest, "Invalid invitation ID")
+		return
+	}
+
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	res, err := database.DB.Exec(`
+		DELETE FROM user_invitations WHERE id = $1 AND tenant_id = $2 AND accepted_at IS NULL
+	`, invID, tenantID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to cancel invitation")
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		respondWithError(w, http.StatusNotFound, "Pending invitation not found")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Invitation cancelled",
+	})
+}
