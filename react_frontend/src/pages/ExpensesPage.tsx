@@ -28,6 +28,15 @@ const COMMON_EXPENSES = [
 ];
 
 const OTHER_OPTION = 'Other';
+
+const unwrapSqlString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'Valid' in value) {
+    const nullStr = value as { String?: unknown; Valid?: unknown };
+    return nullStr.Valid ? String(nullStr.String ?? '') : '';
+  }
+  return '';
+};
 const MONTH_OPTIONS = [
   { value: 1, label: 'January' },
   { value: 2, label: 'February' },
@@ -78,7 +87,14 @@ const ExpensesPage: React.FC = () => {
           category: 'OTHER',
         },
       });
-      setExpenses(response.data.data || []);
+      const normalizedExpenses = (response.data.data || []).map((exp: any) => ({
+        ...exp,
+        category: unwrapSqlString(exp.category) || 'OTHER',
+        item_name: unwrapSqlString(exp.item_name),
+        notes: unwrapSqlString(exp.notes),
+        status: unwrapSqlString(exp.status) || 'APPROVED',
+      }));
+      setExpenses(normalizedExpenses);
       // Don't show error if message says no expenses found - that's normal
       if (response.data.message && !response.data.message.includes('No expenses found')) {
         console.warn(response.data.message);

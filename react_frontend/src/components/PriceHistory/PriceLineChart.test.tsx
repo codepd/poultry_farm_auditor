@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import PriceLineChart from './PriceLineChart';
 import PriceHistoryPage from '../../pages/PriceHistoryPage';
 import api from '../../services/api';
@@ -120,6 +120,61 @@ describe('PriceLineChart Year-on-Year colors and PriceHistoryPage September egg 
 
     await waitFor(() => {
       expect(screen.getByTestId('chart-line-LARGE EGG (2026)')).toBeInTheDocument();
+    });
+  });
+
+  test('defaults to 1 egg line (LARGE EGG) and 1 feed line (LAYER MASH) and switches via per-chart dropdown', async () => {
+    (api.get as jest.Mock).mockImplementation((url: string) => {
+      if (url === '/prices?price_type=EGG') {
+        return Promise.resolve({
+          data: {
+            success: true,
+            data: [
+              { id: 1, tenant_id: 't1', price_date: '2026-09-01', price_type: 'EGG', item_name: 'LARGE EGG', price: 5.52, created_at: '2026-09-01T00:00:00Z' },
+              { id: 2, tenant_id: 't1', price_date: '2026-09-01', price_type: 'EGG', item_name: 'MEDIUM EGG', price: 5.10, created_at: '2026-09-01T00:00:00Z' },
+              { id: 3, tenant_id: 't1', price_date: '2026-09-01', price_type: 'EGG', item_name: 'SMALL EGG', price: 4.50, created_at: '2026-09-01T00:00:00Z' },
+            ],
+          },
+        });
+      }
+      if (url === '/prices?price_type=FEED') {
+        return Promise.resolve({
+          data: {
+            success: true,
+            data: [
+              { id: 4, tenant_id: 't1', price_date: '2026-09-07', price_type: 'FEED', item_name: 'LAYER MASH', price: 29.5, created_at: '2026-09-07T00:00:00Z' },
+              { id: 5, tenant_id: 't1', price_date: '2026-09-07', price_type: 'FEED', item_name: 'GROWER MASH', price: 31.0, created_at: '2026-09-07T00:00:00Z' },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { success: true, data: [] } });
+    });
+
+    render(<PriceHistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chart-line-LARGE EGG (2026)')).toBeInTheDocument();
+      expect(screen.getByTestId('chart-line-LAYER MASH (2026)')).toBeInTheDocument();
+    });
+
+    // Other lines are hidden by default to prevent clutter
+    expect(screen.queryByTestId('chart-line-MEDIUM EGG (2026)')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chart-line-SMALL EGG (2026)')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chart-line-GROWER MASH (2026)')).not.toBeInTheDocument();
+
+    // Switch Egg dropdown to MEDIUM EGG
+    fireEvent.change(screen.getByLabelText('Select Egg Type'), { target: { value: 'MEDIUM EGG' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('chart-line-MEDIUM EGG (2026)')).toBeInTheDocument();
+      expect(screen.queryByTestId('chart-line-LARGE EGG (2026)')).not.toBeInTheDocument();
+    });
+
+    // Switch Feed dropdown to ALL
+    fireEvent.change(screen.getByLabelText('Select Feed Type'), { target: { value: 'ALL' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('chart-line-LAYER MASH (2026)')).toBeInTheDocument();
+      expect(screen.getByTestId('chart-line-GROWER MASH (2026)')).toBeInTheDocument();
     });
   });
 });
