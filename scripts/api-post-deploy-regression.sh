@@ -53,7 +53,8 @@ run_smoke() {
   local attempt
   code="000"
   for attempt in 1 2 3 4 5 6; do
-    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/health" || echo "000")
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/health" || true)
+    code="${code:-000}"
     if [[ "$code" == "200" ]]; then
       break
     fi
