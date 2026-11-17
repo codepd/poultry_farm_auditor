@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usersAPI, TenantUser, InvitationInfo, InviteRequest, CountryCodeInfo, authAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import './UserManagementPage.css';
 
@@ -12,6 +13,7 @@ const ROLES = [
 ];
 
 const UserManagementPage: React.FC = () => {
+  const { user, currentTenant } = useAuth();
   const { t } = useLanguage();
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [invitations, setInvitations] = useState<InvitationInfo[]>([]);
@@ -169,6 +171,42 @@ const UserManagementPage: React.FC = () => {
       setError(err.response?.data?.error || 'Failed to remove member');
     }
   };
+
+  const handleTransferOwnership = async (member: TenantUser) => {
+    const label = member.full_name || member.email || member.phone || `User #${member.id}`;
+    if (!window.confirm(`Transfer farm ownership to ${label}? You will step down to Co-Owner.`)) {
+      return;
+    }
+    setError('');
+    setSuccessMsg('');
+    try {
+      await usersAPI.transferOwnership(member.id, 'CO_OWNER');
+      setSuccessMsg(`Transferred ownership to ${label}. Your role is now Co-Owner.`);
+      loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to transfer ownership');
+    }
+  };
+
+  const handleRevokeInvitation = async (inv: InvitationInfo) => {
+    const label = getInviteIdentifier(inv);
+    if (!window.confirm(`Cancel invitation for ${label}?`)) {
+      return;
+    }
+    setError('');
+    setSuccessMsg('');
+    try {
+      await usersAPI.revokeInvitation(inv.id);
+      setSuccessMsg(`Cancelled invitation for ${label}`);
+      loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to cancel invitation');
+    }
+  };
+
+  const isCurrentUserOwner = Boolean(
+    currentTenant?.role === 'OWNER' || users.some((m) => m.is_owner && m.id === user?.user_id)
+  );
 
   const getInviteType = (inv: InvitationInfo) => {
     if (inv.phone && inv.phone.Valid) return 'Phone';
@@ -348,21 +386,40 @@ const UserManagementPage: React.FC = () => {
                           </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMember(u)}
-                        style={{
-                          fontSize: '0.75rem',
-                          padding: '0.3rem 0.65rem',
-                          borderRadius: '6px',
-                          border: '1px solid #fecaca',
-                          background: '#fef2f2',
-                          color: '#dc2626',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Remove
-                      </button>
+                      {isCurrentUserOwner && u.role === 'CO_OWNER' && (
+                        <button
+                          type="button"
+                          onClick={() => handleTransferOwnership(u)}
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '0.3rem 0.65rem',
+                            borderRadius: '6px',
+                            border: '1px solid #c7d2fe',
+                            background: '#eef2ff',
+                            color: '#4338ca',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Make Owner
+                        </button>
+                      )}
+                      {u.id !== user?.user_id && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMember(u)}
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '0.3rem 0.65rem',
+                            borderRadius: '6px',
+                            border: '1px solid #fecaca',
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -404,6 +461,21 @@ const UserManagementPage: React.FC = () => {
                     </button>
                   )}
                   <span className={`role-badge role-${inv.role.toLowerCase()}`}>{inv.role.replace('_', ' ')}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRevokeInvitation(inv)}
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '0.3rem 0.65rem',
+                      borderRadius: '6px',
+                      border: '1px solid #fecaca',
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             ))}

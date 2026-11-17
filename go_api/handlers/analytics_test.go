@@ -268,3 +268,15 @@ func TestEvaluateFeedPriceAlignment(t *testing.T) {
 		t.Errorf("expected NO_SHEET_RATE, got %s", status3)
 	}
 }
+
+func TestResolveStepDownRole(t *testing.T) {
+	if got := resolveStepDownRole(""); got != "CO_OWNER" {
+		t.Errorf("expected default CO_OWNER, got %q", got)
+	}
+	if got := resolveStepDownRole("admin"); got != "ADMIN" {
+		t.Errorf("expected ADMIN, got %q", got)
+	}
+	if got := resolveStepDownRole("OWNER"); got != "CO_OWNER" {
+		t.Errorf("expected invalid OWNER step-down to fall back to CO_OWNER, got %q", got)
+	}
+}
