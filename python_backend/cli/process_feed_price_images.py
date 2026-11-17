@@ -9,6 +9,7 @@ Usage:
 import sys
 import os
 import re
+import json
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -324,70 +325,88 @@ def extract_date_from_filename(filename):
     
     return None
 
-def process_image(image_path, tenant_id=None, tenant_name=None):
+def process_image(image_path, tenant_id=None, tenant_name=None, dry_run=False, json_output=False):
     """Process a single image and load feed prices."""
+    def log(msg=""):
+        if not json_output:
+            print(msg)
+
+    def emit_json(payload):
+        if json_output:
+            print(json.dumps(payload))
+
     image_path = Path(image_path)
-    
+
     if not image_path.exists():
-        print(f"Error: Image file not found: {image_path}")
+        msg = f"Image file not found: {image_path}"
+        log(f"Error: {msg}")
+        emit_json({"success": False, "error": msg})
         return False
-    
-    print(f"\nProcessing image: {image_path.name}")
-    print("-" * 60)
-    
-    # Try to extract date from filename first (as fallback)
+
+    log(f"\nProcessing image: {image_path.name}")
+    log("-" * 60)
+
     filename_date = extract_date_from_filename(image_path.name)
     if filename_date:
-        print(f"Found date in filename: {filename_date.strftime('%Y-%m-%d')}")
-    
-    # Extract text from image
-    print("Extracting text from image...")
+        log(f"Found date in filename: {filename_date.strftime('%Y-%m-%d')}")
+
+    log("Extracting text from image...")
     text = extract_text_from_image(image_path)
-    
+
     if not text:
-        print("Error: Could not extract text from image")
+        msg = "Could not extract text from image"
+        log(f"Error: {msg}")
+        emit_json({"success": False, "error": msg})
         return False
-    
-    # Debug: print extracted text
-    print("\nExtracted text:")
-    print(text[:1000])  # Print first 1000 chars
-    print("...\n")
-    
-    # Also print lines containing "DATE" for debugging
-    print("Lines containing 'DATE' or date patterns:")
+
+    log("\nExtracted text:")
+    log(text[:1000])
+    log("...\n")
+
+    log("Lines containing 'DATE' or date patterns:")
     for i, line in enumerate(text.split('\n')):
         if 'DATE' in line.upper() or re.search(r'\d{1,2}[.\-]\d{1,2}[.\-]\d{2,4}', line):
-            print(f"  Line {i}: {line}")
-    print()
-    
-    # Parse feed prices
+            log(f"  Line {i}: {line}")
+    log()
+
     date, feed_prices = extract_feed_prices(text)
-    
-    # If date not found in OCR, use filename date
+
     if not date and filename_date:
         date = filename_date
-        print(f"Using date from filename: {date.strftime('%Y-%m-%d')}")
-    
+        log(f"Using date from filename: {date.strftime('%Y-%m-%d')}")
+
     if not date:
-        print("Error: Could not extract date from image or filename")
-        print(f"Filename: {image_path.name}")
+        msg = f"Could not extract date from image or filename ({image_path.name})"
+        log(f"Error: {msg}")
+        emit_json({"success": False, "error": msg})
         return False
-    
+
     if not feed_prices:
-        print("Error: Could not extract feed prices from image")
+        msg = "Could not extract feed prices from image"
+        log(f"Error: {msg}")
+        emit_json({"success": False, "error": msg, "price_date": date.strftime('%Y-%m-%d')})
         return False
-    
-    # Get tenant ID
-    tenant_uuid = get_tenant_id(tenant_name, tenant_id)
-    if not tenant_uuid:
-        print("Error: Could not find tenant")
-        return False
-    
-    # Insert prices
-    print(f"\nInserting prices for tenant: {tenant_uuid}")
-    inserted = insert_feed_prices(tenant_uuid, date, feed_prices)
-    
-    print(f"\n✅ Successfully processed {inserted} feed prices")
+
+    inserted = 0
+    if not dry_run:
+        tenant_uuid = get_tenant_id(tenant_name, tenant_id)
+        if not tenant_uuid:
+            msg = "Could not find tenant"
+            log(f"Error: {msg}")
+            emit_json({"success": False, "error": msg})
+            return False
+
+        log(f"\nInserting prices for tenant: {tenant_uuid}")
+        inserted = insert_feed_prices(tenant_uuid, date, feed_prices)
+        log(f"\n✅ Successfully processed {inserted} feed prices")
+
+    emit_json({
+        "success": True,
+        "price_date": date.strftime('%Y-%m-%d'),
+        "feed_prices": {k: float(v) for k, v in feed_prices.items()},
+        "inserted": inserted,
+        "dry_run": dry_run,
+    })
     return True
 
 def main():
@@ -397,10 +416,18 @@ def main():
     parser.add_argument('image_path', help='Path to image file')
     parser.add_argument('--tenant-id', help='Tenant UUID')
     parser.add_argument('--tenant-name', default='Pradeep Farm', help='Tenant name (default: Pradeep Farm)')
-    
+    parser.add_argument('--dry-run', action='store_true', help='Extract prices without writing to DB')
+    parser.add_argument('--json', action='store_true', help='Emit machine-readable JSON output')
+
     args = parser.parse_args()
-    
-    success = process_image(args.image_path, args.tenant_id, args.tenant_name)
+
+    success = process_image(
+        args.image_path,
+        args.tenant_id,
+        args.tenant_name,
+        dry_run=args.dry_run,
+        json_output=args.json,
+    )
     sys.exit(0 if success else 1)
 
 if __name__ == '__main__':

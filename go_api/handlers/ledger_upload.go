@@ -247,8 +247,11 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	initialStatus := "UPLOADED"
+	commit := r.URL.Query().Get("commit") == "true" || r.FormValue("commit") == "true"
+	asyncMode := r.URL.Query().Get("async") == "true" || r.FormValue("async") == "true"
+
 	if fileType == "FEED_PRICE_IMAGE" {
-		initialStatus = "ARCHIVED"
+		initialStatus = "PARSING"
 	} else {
 		initialStatus = "PARSING"
 	}
@@ -285,9 +288,54 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] Failed to record document_upload in DB: %v", err)
 	}
 
-	// If this is a feed price sheet image, return immediately with audit info
+	// If this is a feed price sheet image, auto-parse weekly rate cards via OCR and validate against monthly ledger
 	if fileType == "FEED_PRICE_IMAGE" {
 		downloadURL, _ := utils.S3PresignGetURL(cfg.S3DocumentsBucket, cfg.AWSRegion, cfg.AWSProfile, s3Key, 1*time.Hour)
+		feedResp, ocrErr := runFeedPriceImageParser(stagedPath, tenantID, commit, inferredYear, inferredMonth)
+		if ocrErr == nil && feedResp != nil {
+			finalStatus := "PREVIEWED"
+			if commit {
+				finalStatus = "COMMITTED"
+			}
+			feedResp["upload_id"] = uploadID
+			feedResp["file_name"] = header.Filename
+			feedResp["file_type"] = fileType
+			feedResp["s3_bucket"] = cfg.S3DocumentsBucket
+			feedResp["s3_key"] = s3Key
+			feedResp["s3_version_id"] = s3VersionID
+			feedResp["sha256_hash"] = sha256HexStr
+			feedResp["upload_status"] = finalStatus
+			feedResp["download_url"] = downloadURL
+			feedResp["s3_synced"] = s3Err == nil
+
+			if uploadID > 0 {
+				if resultBytes, mErr := json.Marshal(feedResp); mErr == nil {
+					_, _ = database.DB.Exec(`
+						UPDATE document_uploads
+						SET upload_status = $1, parse_result = $2, updated_at = CURRENT_TIMESTAMP
+						WHERE id = $3 AND tenant_id = $4
+					`, finalStatus, string(resultBytes), uploadID, tenantID)
+				}
+			}
+			respondWithJSON(w, http.StatusOK, map[string]interface{}{
+				"success": true,
+				"data":    feedResp,
+			})
+			return
+		}
+
+		// Graceful fallback to ARCHIVED (e.g., monthly daily-grid screenshot or OCR unavailable)
+		if uploadID > 0 {
+			_, _ = database.DB.Exec(`
+				UPDATE document_uploads
+				SET upload_status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP
+				WHERE id = $1 AND tenant_id = $2
+			`, uploadID, tenantID)
+		}
+		ocrWarning := ""
+		if ocrErr != nil {
+			ocrWarning = ocrErr.Error()
+		}
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"data": map[string]interface{}{
@@ -301,13 +349,11 @@ func UploadLedgerHandler(w http.ResponseWriter, r *http.Request) {
 				"upload_status": "ARCHIVED",
 				"download_url":  downloadURL,
 				"s3_synced":     s3Err == nil,
+				"ocr_warning":   ocrWarning,
 			},
 		})
 		return
 	}
-
-	commit := r.URL.Query().Get("commit") == "true" || r.FormValue("commit") == "true"
-	asyncMode := r.URL.Query().Get("async") == "true" || r.FormValue("async") == "true"
 
 	if asyncMode {
 		go func(uID int, fPath, fType string, tID uuid.UUID, doCommit bool, fy, fm int) {
@@ -426,6 +472,112 @@ func executePythonLedgerParser(filePath string, tenantID uuid.UUID, commit bool)
 	}
 
 	return result, nil
+}
+
+func runFeedPriceImageParser(filePath string, tenantID uuid.UUID, commit bool, fallbackYear, fallbackMonth int) (map[string]interface{}, error) {
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		absFilePath = filePath
+	}
+	projectRoot, _ := filepath.Abs("..")
+	pythonBin := filepath.Join(projectRoot, "python_backend", "venv", "bin", "python")
+	if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
+		pythonBin = "python3"
+	}
+
+	scriptPath := filepath.Join(projectRoot, "python_backend", "cli", "process_feed_price_images.py")
+	args := []string{
+		scriptPath,
+		absFilePath,
+		"--tenant-id", tenantID.String(),
+		"--json",
+	}
+	if !commit {
+		args = append(args, "--dry-run")
+	}
+
+	cmd := exec.Command(pythonBin, args...)
+	cmd.Dir = projectRoot
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	outputStr := stdout.String()
+	jsonStart := strings.Index(outputStr, "{")
+	if jsonStart == -1 {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(outputStr)
+		}
+		if errMsg == "" && runErr != nil {
+			errMsg = runErr.Error()
+		}
+		return nil, fmt.Errorf("OCR unavailable or failed: %s", errMsg)
+	}
+
+	var parsed struct {
+		Success    bool               `json:"success"`
+		PriceDate  string             `json:"price_date"`
+		FeedPrices map[string]float64 `json:"feed_prices"`
+		Inserted   int                `json:"inserted"`
+		DryRun     bool               `json:"dry_run"`
+		Error      string             `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(outputStr[jsonStart:]), &parsed); err != nil {
+		return nil, fmt.Errorf("failed to decode OCR output: %v", err)
+	}
+	if !parsed.Success || len(parsed.FeedPrices) == 0 {
+		if parsed.Error != "" {
+			return nil, fmt.Errorf("%s", parsed.Error)
+		}
+		return nil, fmt.Errorf("could not extract feed prices from image")
+	}
+
+	sheetYear := fallbackYear
+	sheetMonth := fallbackMonth
+	if t, err := time.Parse("2006-01-02", parsed.PriceDate); err == nil {
+		sheetYear = t.Year()
+		sheetMonth = int(t.Month())
+	}
+
+	validation, _ := ValidateFeedPricesForTenant(tenantID, sheetYear, sheetMonth)
+	if validation != nil && !commit {
+		// Overlay preview sheet rates onto ledger rows on/after parsed.PriceDate
+		recounted := FeedPriceValidationSummary{Total: len(validation.Rows)}
+		for i := range validation.Rows {
+			row := &validation.Rows[i]
+			if bagRate, ok := parsed.FeedPrices[row.ItemName]; ok && bagRate > 0 && row.TransactionDate >= parsed.PriceDate {
+				if row.SheetDate == "" || parsed.PriceDate >= row.SheetDate {
+					sheetPerKg, diffPerKg, diffPct, status := EvaluateFeedPriceAlignment(row.LedgerRatePerKg, bagRate)
+					row.SheetDate = parsed.PriceDate
+					row.SheetBagRate = bagRate
+					row.SheetRatePerKg = sheetPerKg
+					row.DiffPerKg = diffPerKg
+					row.DiffPct = diffPct
+					row.Status = status
+				}
+			}
+			switch row.Status {
+			case "ALIGNED":
+				recounted.Aligned++
+			case "MISMATCH":
+				recounted.Mismatch++
+			default:
+				recounted.NoSheetRate++
+			}
+		}
+		validation.Summary = recounted
+	}
+
+	return map[string]interface{}{
+		"price_date":  parsed.PriceDate,
+		"feed_prices": parsed.FeedPrices,
+		"inserted":    parsed.Inserted,
+		"dry_run":     parsed.DryRun,
+		"validation":  validation,
+	}, nil
 }
 
 func updateDocumentUploadAfterParse(uploadID int, tenantID uuid.UUID, result map[string]interface{}, parseErr error, committed bool) {

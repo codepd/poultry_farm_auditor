@@ -90,4 +90,72 @@ describe('DataUploadPage Import Mode selection', () => {
       expect(adminAPI.commitUpload).toHaveBeenCalledWith(42, 'replace_month');
     });
   });
+
+  test('displays extracted feed prices and monthly alignment on FEED_PRICE_IMAGE upload and allows committing', async () => {
+    (adminAPI.uploadLedger as jest.Mock)
+      .mockResolvedValueOnce({
+        upload_id: 99,
+        file_name: '06_01_2026.jpeg',
+        file_type: 'FEED_PRICE_IMAGE',
+        upload_status: 'PREVIEWED',
+        price_date: '2026-06-01',
+        feed_prices: { 'LAYER MASH': 2250 },
+        validation: {
+          summary: { total: 1, aligned: 1, mismatch: 0, no_sheet_rate: 0 },
+          rows: [
+            {
+              transaction_id: 201,
+              transaction_date: '2026-06-05',
+              item_name: 'LAYER MASH',
+              ledger_rate_per_kg: 30.0,
+              sheet_rate_per_kg: 30.0,
+              diff_per_kg: 0,
+              status: 'ALIGNED',
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        upload_id: 99,
+        file_name: '06_01_2026.jpeg',
+        file_type: 'FEED_PRICE_IMAGE',
+        upload_status: 'COMMITTED',
+        price_date: '2026-06-01',
+        feed_prices: { 'LAYER MASH': 2250 },
+        validation: {
+          summary: { total: 1, aligned: 1, mismatch: 0, no_sheet_rate: 0 },
+          rows: [
+            {
+              transaction_id: 201,
+              transaction_date: '2026-06-05',
+              item_name: 'LAYER MASH',
+              ledger_rate_per_kg: 30.0,
+              sheet_rate_per_kg: 30.0,
+              diff_per_kg: 0,
+              status: 'ALIGNED',
+            },
+          ],
+        },
+      });
+
+    const { container } = render(<DataUploadPage />);
+    const input = container.querySelector('#file-upload-input') as HTMLInputElement;
+    const file = new File(['img'], '06_01_2026.jpeg', { type: 'image/jpeg' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    fireEvent.click(screen.getByText(/upload\.submitBtn/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Feed Price Card Extracted — Ready to Save')).toBeInTheDocument();
+    });
+    expect(screen.getByText('₹2250.00')).toBeInTheDocument();
+    expect(screen.getByText('ALIGNED')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Confirm & Save to Price History'));
+
+    await waitFor(() => {
+      expect(adminAPI.uploadLedger).toHaveBeenCalledWith(file, true);
+      expect(screen.getByText('Feed Prices Saved & Validated!')).toBeInTheDocument();
+    });
+  });
 });

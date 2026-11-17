@@ -144,6 +144,7 @@ func main() {
 	protectedRouter.HandleFunc("/prices/{id}", handlers.UpdatePriceHistory).Methods("PUT")
 	protectedRouter.HandleFunc("/prices/{id}", handlers.DeletePriceHistory).Methods("DELETE")
 	protectedRouter.HandleFunc("/prices/monthly-egg-averages", handlers.GetMonthlyAverageEggPrices).Methods("GET")
+	protectedRouter.HandleFunc("/prices/feed-validation", handlers.GetFeedPriceValidation).Methods("GET")
 
 	// Sensitive data config routes
 	protectedRouter.HandleFunc("/sensitive-data-config", handlers.GetSensitiveDataConfig).Methods("GET")

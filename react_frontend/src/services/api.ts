@@ -744,6 +744,46 @@ export const adminAPI = {
   },
 };
 
+export interface FeedPriceValidationRow {
+  transaction_id: number;
+  transaction_date: string;
+  item_name: string;
+  quantity: number;
+  amount: number;
+  ledger_rate_per_kg: number;
+  sheet_date?: string;
+  sheet_bag_rate?: number;
+  sheet_rate_per_kg?: number;
+  diff_per_kg?: number;
+  diff_pct?: number;
+  status: 'ALIGNED' | 'MISMATCH' | 'NO_SHEET_RATE';
+}
+
+export interface FeedPriceValidationSummary {
+  total: number;
+  aligned: number;
+  mismatch: number;
+  no_sheet_rate: number;
+}
+
+export interface FeedPriceValidationResult {
+  summary: FeedPriceValidationSummary;
+  rows: FeedPriceValidationRow[];
+}
+
+export const pricesAPI = {
+  getFeedValidation: async (year?: number | null, month?: number | null): Promise<FeedPriceValidationResult> => {
+    const params: Record<string, number> = {};
+    if (year) params.year = year;
+    if (month) params.month = month;
+    const response = await api.get<{ success: boolean; data: FeedPriceValidationResult }>(
+      '/prices/feed-validation',
+      { params }
+    );
+    return response.data.data;
+  },
+};
+
 export default api;
 
 
