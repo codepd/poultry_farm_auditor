@@ -129,6 +129,7 @@ func main() {
 	protectedRouter.HandleFunc("/admin/upload-ledger", handlers.UploadLedgerHandler).Methods("POST")
 	protectedRouter.HandleFunc("/admin/uploads", handlers.ListDocumentUploadsHandler).Methods("GET")
 	protectedRouter.HandleFunc("/admin/uploads/{id}", handlers.GetDocumentUploadStatusHandler).Methods("GET")
+	protectedRouter.HandleFunc("/admin/uploads/{id}/reconcile", handlers.ReconcileDocumentUploadHandler).Methods("GET")
 	protectedRouter.HandleFunc("/admin/uploads/{id}/commit", handlers.CommitDocumentUploadHandler).Methods("POST")
 
 	// Analytics routes
