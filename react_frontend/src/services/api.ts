@@ -795,6 +795,57 @@ export const pricesAPI = {
   },
 };
 
+export interface DailyLogSubmission {
+  id: number;
+  tenant_id: string;
+  log_type: 'EGG_SALE' | 'FEED_PURCHASE' | 'EXPENSE' | 'MORTALITY';
+  log_date: string;
+  category: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  amount: number;
+  hen_batch_id?: number;
+  notes?: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'RECONCILED';
+  submitted_by_user_id: number;
+  submitted_by_name?: string;
+  reviewed_by_user_id?: number;
+  reviewed_at?: string;
+  review_notes?: string;
+  created_at: string;
+}
+
+export const dailyLogsAPI = {
+  list: async (status?: string): Promise<DailyLogSubmission[]> => {
+    const params = status ? { status } : undefined;
+    const response = await api.get<{ success: boolean; data: DailyLogSubmission[] }>('/daily-logs', { params });
+    return response.data.data || [];
+  },
+  submit: async (payload: {
+    log_type: 'EGG_SALE' | 'FEED_PURCHASE' | 'EXPENSE' | 'MORTALITY';
+    log_date: string;
+    category?: string;
+    item_name?: string;
+    quantity?: number;
+    unit?: string;
+    rate?: number;
+    amount?: number;
+    hen_batch_id?: number;
+    notes?: string;
+  }): Promise<{ id: number; status: string }> => {
+    const response = await api.post<{ success: boolean; data: { id: number; status: string } }>('/daily-logs', payload);
+    return response.data.data;
+  },
+  approve: async (id: number): Promise<void> => {
+    await api.post(`/daily-logs/${id}/approve`);
+  },
+  reject: async (id: number, review_notes?: string): Promise<void> => {
+    await api.post(`/daily-logs/${id}/reject`, { review_notes });
+  },
+};
+
 export default api;
 
 

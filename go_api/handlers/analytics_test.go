@@ -280,3 +280,22 @@ func TestResolveStepDownRole(t *testing.T) {
 		t.Errorf("expected invalid OWNER step-down to fall back to CO_OWNER, got %q", got)
 	}
 }
+
+func TestDailyLogApprovalHelpers(t *testing.T) {
+	for _, r := range []string{"OWNER", "CO_OWNER", "ADMIN", "MANAGER"} {
+		if !CanApproveDailyLogs(r) {
+			t.Errorf("expected %s to approve daily logs", r)
+		}
+		if got := ResolveInitialDailyLogStatus(r); got != "APPROVED" {
+			t.Errorf("expected %s submission to auto-approve, got %s", r, got)
+		}
+	}
+	for _, r := range []string{"OTHER_USER", "AUDITOR", ""} {
+		if CanApproveDailyLogs(r) {
+			t.Errorf("expected %s NOT to approve daily logs", r)
+		}
+		if got := ResolveInitialDailyLogStatus(r); got != "PENDING_APPROVAL" {
+			t.Errorf("expected %s submission to be PENDING_APPROVAL, got %s", r, got)
+		}
+	}
+}

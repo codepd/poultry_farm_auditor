@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { analyticsAPI } from '../services/api';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { analyticsAPI, dailyLogsAPI, DailyLogSubmission } from '../services/api';
 import DailyQuickLogModal from '../components/Home/DailyQuickLogModal';
 import OnboardingTour from '../onboarding/OnboardingTour';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
@@ -18,6 +18,41 @@ const HomePage: React.FC = () => {
   const [showDateRange, setShowDateRange] = useState(false);
 
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
+  const canLogDaily = Boolean(currentTenant);
+  const [pendingLogs, setPendingLogs] = useState<DailyLogSubmission[]>([]);
+  const [showApprovals, setShowApprovals] = useState(false);
+
+  const loadPendingLogs = useCallback(() => {
+    if (!canEdit || !dailyLogsAPI?.list) return;
+    dailyLogsAPI
+      .list('PENDING_APPROVAL')
+      .then((list) => setPendingLogs(list))
+      .catch(() => {});
+  }, [canEdit]);
+
+  useEffect(() => {
+    loadPendingLogs();
+    window.addEventListener('transactionsUpdated', loadPendingLogs);
+    return () => window.removeEventListener('transactionsUpdated', loadPendingLogs);
+  }, [loadPendingLogs]);
+
+  const handleApproveLog = async (id: number) => {
+    try {
+      await dailyLogsAPI.approve(id);
+      window.dispatchEvent(new Event('transactionsUpdated'));
+    } catch {
+      // handled silently or via refresh
+    }
+  };
+
+  const handleRejectLog = async (id: number) => {
+    try {
+      await dailyLogsAPI.reject(id);
+      loadPendingLogs();
+    } catch {
+      // handled silently
+    }
+  };
 
   // Default to last month until we know the latest month that actually has data
   const lastMonth = new Date();
@@ -61,7 +96,7 @@ const HomePage: React.FC = () => {
     <div className="home-page">
       {/* Action shortcuts bar */}
       <div className="home-shortcuts-bar">
-        {canEdit && (
+        {canLogDaily && (
           <button
             type="button"
             className="shortcut-pill active"
@@ -69,6 +104,17 @@ const HomePage: React.FC = () => {
             onClick={() => setShowMobileQuickLog(true)}
           >
             {t('quickLog.btn')}
+          </button>
+        )}
+
+        {canEdit && pendingLogs.length > 0 && (
+          <button
+            type="button"
+            className={`shortcut-pill ${showApprovals ? 'active' : ''}`}
+            onClick={() => setShowApprovals(!showApprovals)}
+            style={{ background: showApprovals ? '#d97706' : '#fef3c7', color: showApprovals ? '#fff' : '#92400e', borderColor: '#f59e0b' }}
+          >
+            ⏳ Pending Approvals ({pendingLogs.length})
           </button>
         )}
 
@@ -81,13 +127,63 @@ const HomePage: React.FC = () => {
         </button>
       </div>
 
+      {canEdit && showApprovals && pendingLogs.length > 0 && (
+        <div className="collapsible-container" style={{ background: '#fff', padding: '1rem', borderRadius: '10px', marginBottom: '1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Pending Employee Submissions</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {pendingLogs.map((log) => (
+              <div
+                key={log.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  padding: '0.65rem 0.85rem',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                }}
+              >
+                <div>
+                  <strong>{log.log_type.replace('_', ' ')}</strong> · {log.log_date} ·{' '}
+                  <span>{log.item_name || log.category}</span>
+                  {log.quantity > 0 && <span> ({log.quantity} {log.unit})</span>}
+                  {log.amount > 0 && <span> — ₹{log.amount.toLocaleString('en-IN')}</span>}
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                    Submitted by {log.submitted_by_name || 'Employee'}
+                    {log.notes ? ` · ${log.notes}` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleApproveLog(log.id)}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectLog(log.id)}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {showDateRange && (
         <div className="collapsible-container">
           <DateRangeSummaryPanel />
         </div>
       )}
 
-      {canEdit && showMobileQuickLog && (
+      {canLogDaily && showMobileQuickLog && (
         <DailyQuickLogModal onClose={() => setShowMobileQuickLog(false)} />
       )}
 
