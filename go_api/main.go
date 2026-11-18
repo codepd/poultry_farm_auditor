@@ -148,6 +148,12 @@ func main() {
 	protectedRouter.HandleFunc("/prices/monthly-egg-averages", handlers.GetMonthlyAverageEggPrices).Methods("GET")
 	protectedRouter.HandleFunc("/prices/feed-validation", handlers.GetFeedPriceValidation).Methods("GET")
 
+	// Daily log submissions & approval workflow
+	protectedRouter.HandleFunc("/daily-logs", handlers.ListDailyLogs).Methods("GET")
+	protectedRouter.HandleFunc("/daily-logs", handlers.SubmitDailyLog).Methods("POST")
+	protectedRouter.HandleFunc("/daily-logs/{id}/approve", handlers.ApproveDailyLog).Methods("POST")
+	protectedRouter.HandleFunc("/daily-logs/{id}/reject", handlers.RejectDailyLog).Methods("POST")
+
 	// Sensitive data config routes
 	protectedRouter.HandleFunc("/sensitive-data-config", handlers.GetSensitiveDataConfig).Methods("GET")
 	protectedRouter.HandleFunc("/sensitive-data-config", handlers.UpdateSensitiveDataConfig).Methods("PUT")

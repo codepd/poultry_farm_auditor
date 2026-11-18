@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { transactionsAPI, henBatchesAPI, HenBatch } from '../../services/api';
+import { transactionsAPI, henBatchesAPI, dailyLogsAPI, HenBatch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface DailyQuickLogModalProps {
@@ -19,7 +20,11 @@ const EXPENSE_ITEM_OPTIONS: Record<ExpenseCategory, string[]> = {
 };
 
 const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSaved }) => {
+  const { currentTenant } = useAuth();
   const { t } = useLanguage();
+  const requiresApproval = Boolean(
+    currentTenant && !['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role)
+  );
   const [activeTab, setActiveTab] = useState<QuickTab>('egg');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -71,16 +76,29 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
           setSaving(false);
           return;
         }
-        await transactionsAPI.createTransaction({
-          transaction_date: date,
-          transaction_type: 'SALE',
-          category: 'EGG',
-          item_name: eggType,
-          quantity: qty,
-          unit: 'NOS',
-          rate,
-          amount: Number((qty * rate).toFixed(2)),
-        });
+        if (requiresApproval) {
+          await dailyLogsAPI.submit({
+            log_type: 'EGG_SALE',
+            log_date: date,
+            category: 'EGG',
+            item_name: eggType,
+            quantity: qty,
+            unit: 'NOS',
+            rate,
+            amount: Number((qty * rate).toFixed(2)),
+          });
+        } else {
+          await transactionsAPI.createTransaction({
+            transaction_date: date,
+            transaction_type: 'SALE',
+            category: 'EGG',
+            item_name: eggType,
+            quantity: qty,
+            unit: 'NOS',
+            rate,
+            amount: Number((qty * rate).toFixed(2)),
+          });
+        }
       } else if (activeTab === 'expense') {
         const total = parseFloat(amount);
         const resolvedItemName =
@@ -90,13 +108,23 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
           setSaving(false);
           return;
         }
-        await transactionsAPI.createTransaction({
-          transaction_date: date,
-          transaction_type: expenseCategory === 'FEED' || expenseCategory === 'MEDICINE' ? 'PURCHASE' : 'EXPENSE',
-          category: expenseCategory,
-          item_name: resolvedItemName.toUpperCase(),
-          amount: total,
-        });
+        if (requiresApproval) {
+          await dailyLogsAPI.submit({
+            log_type: expenseCategory === 'FEED' ? 'FEED_PURCHASE' : 'EXPENSE',
+            log_date: date,
+            category: expenseCategory,
+            item_name: resolvedItemName.toUpperCase(),
+            amount: total,
+          });
+        } else {
+          await transactionsAPI.createTransaction({
+            transaction_date: date,
+            transaction_type: expenseCategory === 'FEED' || expenseCategory === 'MEDICINE' ? 'PURCHASE' : 'EXPENSE',
+            category: expenseCategory,
+            item_name: resolvedItemName.toUpperCase(),
+            amount: total,
+          });
+        }
       } else {
         const count = parseInt(mortalityCount, 10);
         if (!selectedBatchId || !count || count <= 0) {
@@ -104,16 +132,29 @@ const DailyQuickLogModal: React.FC<DailyQuickLogModalProps> = ({ onClose, onSave
           setSaving(false);
           return;
         }
-        await henBatchesAPI.createMortality({
-          batch_id: selectedBatchId,
-          mortality_date: date,
-          count,
-          notes: mortalityNotes.trim() || undefined,
-        });
+        if (requiresApproval) {
+          await dailyLogsAPI.submit({
+            log_type: 'MORTALITY',
+            log_date: date,
+            category: 'MORTALITY',
+            item_name: 'Mortality',
+            quantity: count,
+            unit: 'BIRDS',
+            hen_batch_id: selectedBatchId,
+            notes: mortalityNotes.trim() || undefined,
+          });
+        } else {
+          await henBatchesAPI.createMortality({
+            batch_id: selectedBatchId,
+            mortality_date: date,
+            count,
+            notes: mortalityNotes.trim() || undefined,
+          });
+        }
       }
 
       window.dispatchEvent(new Event('transactionsUpdated'));
-      setSuccess(t('quickLog.savedSuccess'));
+      setSuccess(requiresApproval ? 'Submitted for Manager / Owner approval.' : t('quickLog.savedSuccess'));
       setEggCount('');
       setRatePerEgg('');
       setCustomItemName('');

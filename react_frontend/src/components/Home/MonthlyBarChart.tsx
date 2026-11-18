@@ -51,6 +51,7 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [includeCurrentMonth, setIncludeCurrentMonth] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -90,6 +91,8 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
     };
 
     fetchData();
+    window.addEventListener('transactionsUpdated', fetchData);
+    return () => window.removeEventListener('transactionsUpdated', fetchData);
   }, [isAuthenticated]);
 
   if (loading) {
@@ -104,8 +107,18 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
     return <div className="chart-no-data">No data available for the last 12 months</div>;
   }
 
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const hasCurrentMonthData = data.some(
+    (item) => item.year === currentYear && item.month === currentMonth
+  );
+  const visibleMonths = includeCurrentMonth
+    ? data
+    : data.filter((item) => !(item.year === currentYear && item.month === currentMonth));
+
   // Format data for Recharts - show full month names and add click handlers
-  const chartData = data.map((item) => {
+  const chartData = visibleMonths.map((item) => {
     const locale = language === 'ta' ? 'ta-IN' : 'en-IN';
     const localizedShortMonth = new Date(Date.UTC(item.year, item.month - 1, 1))
       .toLocaleString(locale, { month: 'short', timeZone: 'UTC' });
@@ -189,9 +202,45 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
 
   return (
     <div className="monthly-bar-chart">
-      <div className="chart-header">
+      <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
         <h3>{t('chart.title12Months')}</h3>
+        {hasCurrentMonthData && (
+          <button
+            type="button"
+            className={`shortcut-pill ${includeCurrentMonth ? 'active' : ''}`}
+            onClick={() => setIncludeCurrentMonth((prev) => !prev)}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: '999px',
+              border: includeCurrentMonth ? '1px solid #2563eb' : '1px solid #cbd5e1',
+              background: includeCurrentMonth ? '#2563eb' : '#f8fafc',
+              color: includeCurrentMonth ? '#ffffff' : '#1e293b',
+              fontWeight: 600,
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+            }}
+          >
+            {includeCurrentMonth
+              ? '✓ Current Month Included (Live)'
+              : '📊 Show Current Month (Live · In-Progress)'}
+          </button>
+        )}
       </div>
+      {includeCurrentMonth && hasCurrentMonthData && (
+        <div
+          style={{
+            margin: '0.25rem 0 0.75rem',
+            padding: '0.5rem 0.85rem',
+            background: '#eff6ff',
+            borderLeft: '3px solid #2563eb',
+            borderRadius: '6px',
+            fontSize: '0.84rem',
+            color: '#1e40af',
+          }}
+        >
+          Showing in-progress current month data from approved entries — final numbers will reconcile when the monthly ledger is uploaded.
+        </div>
+      )}
       <div className="chart-wrapper">
         <ResponsiveContainer width="100%" height={isMobile ? 280 : 400}>
           <BarChart

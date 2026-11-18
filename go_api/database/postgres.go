@@ -136,6 +136,30 @@ func runMigrations() {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(tenant_id, data_type)
 		)`,
+		"ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'LEDGER'",
+		`CREATE TABLE IF NOT EXISTS daily_log_submissions (
+			id SERIAL PRIMARY KEY,
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			log_type VARCHAR(30) NOT NULL,
+			log_date DATE NOT NULL,
+			category VARCHAR(50),
+			item_name VARCHAR(255),
+			quantity DOUBLE PRECISION DEFAULT 0,
+			unit VARCHAR(50),
+			rate DOUBLE PRECISION DEFAULT 0,
+			amount DOUBLE PRECISION DEFAULT 0,
+			hen_batch_id INTEGER,
+			notes TEXT,
+			status VARCHAR(30) NOT NULL DEFAULT 'PENDING_APPROVAL',
+			submitted_by_user_id INTEGER REFERENCES users(id),
+			reviewed_by_user_id INTEGER REFERENCES users(id),
+			reviewed_at TIMESTAMP,
+			review_notes TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_daily_logs_tenant_status ON daily_log_submissions(tenant_id, status)",
+		"CREATE INDEX IF NOT EXISTS idx_daily_logs_tenant_date ON daily_log_submissions(tenant_id, log_date)",
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {
