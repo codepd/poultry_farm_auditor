@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { adminAPI, DocumentUploadRecord } from '../services/api';
+import { adminAPI, DocumentUploadRecord, ReconciliationReport } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import './DataUploadPage.css';
@@ -18,6 +18,31 @@ const DataUploadPage: React.FC = () => {
   const [archivedFeedCard, setArchivedFeedCard] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'feeds' | 'eggs' | 'discounts' | 'payments'>('feeds');
   const [importMode, setImportMode] = useState<'append_file' | 'replace_month'>('append_file');
+  const [reconciliation, setReconciliation] = useState<ReconciliationReport | null>(null);
+  const [reconcileDecisions, setReconcileDecisions] = useState<Record<number, 'KEEP_LEDGER' | 'KEEP_BOTH'>>({});
+
+  useEffect(() => {
+    if (!currentUploadId || !adminAPI?.reconcileUpload) {
+      setReconciliation(null);
+      return;
+    }
+    Promise.resolve(adminAPI.reconcileUpload(currentUploadId))
+      .then((report) => {
+        if (!report || !Array.isArray(report.matches)) {
+          setReconciliation(null);
+          return;
+        }
+        setReconciliation(report);
+        const initial: Record<number, 'KEEP_LEDGER' | 'KEEP_BOTH'> = {};
+        report.matches.forEach((m, idx) => {
+          if (m.daily_log_item?.id) {
+            initial[idx] = m.status === 'DAILY_LOG_ONLY' ? 'KEEP_BOTH' : 'KEEP_LEDGER';
+          }
+        });
+        setReconcileDecisions(initial);
+      })
+      .catch(() => setReconciliation(null));
+  }, [currentUploadId]);
 
   // Audit history state
   const [uploadHistory, setUploadHistory] = useState<DocumentUploadRecord[]>([]);
@@ -162,7 +187,19 @@ const DataUploadPage: React.FC = () => {
     setError('');
     try {
       if (currentUploadId) {
-        await adminAPI.commitUpload(currentUploadId, importMode);
+        const supersedeIds: number[] = [];
+        if (reconciliation) {
+          reconciliation.matches.forEach((m, idx) => {
+            if (m.daily_log_item?.id && reconcileDecisions[idx] === 'KEEP_LEDGER') {
+              supersedeIds.push(m.daily_log_item.id);
+            }
+          });
+        }
+        if (supersedeIds.length > 0) {
+          await adminAPI.commitUpload(currentUploadId, importMode, supersedeIds);
+        } else {
+          await adminAPI.commitUpload(currentUploadId, importMode);
+        }
       } else if (selectedFile) {
         await adminAPI.uploadLedger(selectedFile, true);
       }
@@ -678,6 +715,94 @@ const DataUploadPage: React.FC = () => {
               </div>
             </label>
           </div>
+
+          {reconciliation &&
+            (reconciliation.summary.exact_match > 0 ||
+              reconciliation.summary.date_shift > 0 ||
+              reconciliation.summary.mismatch > 0 ||
+              reconciliation.summary.daily_log_only > 0) && (
+              <div style={{ margin: '1.25rem 0', padding: '1rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
+                <h4 style={{ marginTop: 0, marginBottom: '0.5rem' }}>
+                  Daily Log vs Ledger Reconciliation
+                </h4>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem', fontSize: '0.82rem' }}>
+                  <span style={{ background: '#dcfce7', color: '#166534', padding: '0.2rem 0.55rem', borderRadius: '999px', fontWeight: 600 }}>
+                    Exact Match: {reconciliation.summary.exact_match}
+                  </span>
+                  <span style={{ background: '#fef9c3', color: '#854d0e', padding: '0.2rem 0.55rem', borderRadius: '999px', fontWeight: 600 }}>
+                    Date Shift (±1–2d): {reconciliation.summary.date_shift}
+                  </span>
+                  <span style={{ background: '#fee2e2', color: '#991b1b', padding: '0.2rem 0.55rem', borderRadius: '999px', fontWeight: 600 }}>
+                    Mismatch / Unmatched: {reconciliation.summary.mismatch + reconciliation.summary.daily_log_only}
+                  </span>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="review-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Match</th>
+                        <th>Ledger Entry</th>
+                        <th>Daily Log Entry</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconciliation.matches
+                        .filter((m) => m.status !== 'LEDGER_ONLY')
+                        .map((m, idx) => {
+                          const bg =
+                            m.color === 'green' ? '#f0fdf4' : m.color === 'yellow' ? '#fefce8' : '#fef2f2';
+                          const badgeBg =
+                            m.color === 'green' ? '#dcfce7' : m.color === 'yellow' ? '#fef9c3' : '#fee2e2';
+                          const badgeColor =
+                            m.color === 'green' ? '#166534' : m.color === 'yellow' ? '#854d0e' : '#991b1b';
+                          return (
+                            <tr key={idx} style={{ background: bg }}>
+                              <td>
+                                <span style={{ background: badgeBg, color: badgeColor, padding: '0.2rem 0.5rem', borderRadius: '999px', fontSize: '0.76rem', fontWeight: 700 }}>
+                                  {m.status === 'DATE_SHIFT'
+                                    ? `DATE SHIFT (${m.date_diff_days && m.date_diff_days > 0 ? '+' : ''}${m.date_diff_days}d)`
+                                    : m.status.replace('_', ' ')}
+                                </span>
+                              </td>
+                              <td>
+                                {m.ledger_item
+                                  ? `${m.ledger_item.date} · ${m.ledger_item.item_name} (${m.ledger_item.quantity || '-'} / ₹${m.ledger_item.amount.toLocaleString('en-IN')})`
+                                  : '—'}
+                              </td>
+                              <td>
+                                {m.daily_log_item
+                                  ? `${m.daily_log_item.date} · ${m.daily_log_item.item_name} (${m.daily_log_item.quantity || '-'} / ₹${m.daily_log_item.amount.toLocaleString('en-IN')})`
+                                  : '—'}
+                              </td>
+                              <td>
+                                {m.daily_log_item?.id ? (
+                                  <select
+                                    aria-label={`Resolution for reconciliation row ${idx}`}
+                                    value={reconcileDecisions[idx] || 'KEEP_LEDGER'}
+                                    onChange={(e) =>
+                                      setReconcileDecisions((prev) => ({
+                                        ...prev,
+                                        [idx]: e.target.value as 'KEEP_LEDGER' | 'KEEP_BOTH',
+                                      }))
+                                    }
+                                    style={{ fontSize: '0.8rem', padding: '0.25rem 0.45rem', borderRadius: '6px' }}
+                                  >
+                                    <option value="KEEP_LEDGER">Use Ledger (replace daily log)</option>
+                                    <option value="KEEP_BOTH">Keep Both</option>
+                                  </select>
+                                ) : (
+                                  <span>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
           <div className="review-actions-bar">
             <button

@@ -697,6 +697,36 @@ export interface DocumentUploadRecord {
   updated_at: string;
 }
 
+export interface ReconcileItem {
+  id?: number;
+  date: string;
+  category: string;
+  item_name: string;
+  quantity: number;
+  amount: number;
+  source: string;
+}
+
+export interface ReconciliationMatch {
+  status: 'EXACT_MATCH' | 'DATE_SHIFT' | 'MISMATCH' | 'LEDGER_ONLY' | 'DAILY_LOG_ONLY';
+  color: 'green' | 'yellow' | 'red';
+  date_diff_days?: number;
+  default_resolution: string;
+  ledger_item?: ReconcileItem;
+  daily_log_item?: ReconcileItem;
+}
+
+export interface ReconciliationReport {
+  summary: {
+    exact_match: number;
+    date_shift: number;
+    mismatch: number;
+    ledger_only: number;
+    daily_log_only: number;
+  };
+  matches: ReconciliationMatch[];
+}
+
 export const adminAPI = {
   uploadLedger: async (
     file: File,
@@ -746,10 +776,24 @@ export const adminAPI = {
     );
     return response.data.data;
   },
-  commitUpload: async (id: number, importMode: 'append_file' | 'replace_month' = 'append_file') => {
+  reconcileUpload: async (id: number): Promise<ReconciliationReport> => {
+    const response = await api.get<{ success: boolean; data: ReconciliationReport }>(
+      `/admin/uploads/${id}/reconcile`
+    );
+    return response.data.data;
+  },
+  commitUpload: async (
+    id: number,
+    importMode: 'append_file' | 'replace_month' = 'append_file',
+    supersedeDailyLogIds?: number[]
+  ) => {
+    const payload: any = { import_mode: importMode };
+    if (supersedeDailyLogIds && supersedeDailyLogIds.length > 0) {
+      payload.supersede_daily_log_ids = supersedeDailyLogIds;
+    }
     const response = await api.post<{ success: boolean; data: any }>(
       `/admin/uploads/${id}/commit`,
-      { import_mode: importMode }
+      payload
     );
     return response.data.data;
   },
