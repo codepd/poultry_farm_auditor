@@ -121,6 +121,7 @@ func main() {
 	protectedRouter.HandleFunc("/users/magic-link", handlers.GenerateUserMagicLink).Methods("POST")
 	protectedRouter.HandleFunc("/users/{id}/role", handlers.UpdateUserRole).Methods("PUT")
 	protectedRouter.HandleFunc("/users/{id}/sensitive-access", handlers.UpdateUserSensitiveAccess).Methods("PUT")
+	protectedRouter.HandleFunc("/users/{id}/permissions", handlers.UpdateUserPermissions).Methods("PUT")
 	protectedRouter.HandleFunc("/users/{id}/transfer-ownership", handlers.TransferOwnership).Methods("POST")
 	protectedRouter.HandleFunc("/users/{id}", handlers.RemoveUser).Methods("DELETE")
 

@@ -578,6 +578,7 @@ export interface TenantUser {
   role: string;
   is_owner: boolean;
   can_view_sensitive_data?: boolean;
+  permissions?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -651,6 +652,7 @@ export const usersAPI = {
         can_approve_transactions: boolean;
         can_manage_users: boolean;
         can_view_charts: boolean;
+        permissions?: string[];
       };
     }>('/users/my-permissions');
     return response.data.data;
@@ -674,6 +676,13 @@ export const usersAPI = {
       success: boolean;
       data: { user_id: number; can_view_sensitive_data: boolean };
     }>(`/users/${userId}/sensitive-access`, { can_view_sensitive_data: canViewSensitiveData });
+    return response.data.data;
+  },
+  updateUserPermissions: async (userId: number, permissions: string[]) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { user_id: number; permissions: string[]; can_view_sensitive_data: boolean };
+    }>(`/users/${userId}/permissions`, { permissions });
     return response.data.data;
   },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
@@ -881,6 +890,16 @@ export const dailyLogsAPI = {
     await api.post(`/daily-logs/${id}/reject`, { review_notes });
   },
 };
+
+export function hasPermission(perms: string[] | undefined, required: string): boolean {
+  if (!perms || perms.length === 0) return false;
+  const req = required.trim().toLowerCase();
+  const impliedManage = req.startsWith('read:') ? `manage:${req.slice(5)}` : '';
+  return perms.some((p) => {
+    const norm = p.trim().toLowerCase();
+    return norm === req || (impliedManage !== '' && norm === impliedManage);
+  });
+}
 
 export default api;
 
