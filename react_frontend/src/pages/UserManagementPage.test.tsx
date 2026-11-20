@@ -139,4 +139,38 @@ describe('UserManagementPage promote/demote/remove/transfer/revoke actions', () 
       expect((usersAPI as any).updateUserSensitiveAccess).toHaveBeenCalledWith(3, true);
     });
   });
+
+  test('allows Owner to open Permissions panel and toggle granular permissions per member', async () => {
+    (usersAPI.getUsers as jest.Mock).mockResolvedValue([
+      { id: 1, full_name: 'Owner', email: 'owner@example.com', phone: '', role: 'OWNER', is_owner: true, is_active: true, created_at: '', updated_at: '' },
+      { id: 3, full_name: 'Manager One', email: '', phone: '+919999999991', role: 'MANAGER', is_owner: false, can_view_sensitive_data: false, permissions: ['manage:expense', 'submit:daily_log'], is_active: true, created_at: '', updated_at: '' },
+    ]);
+    (usersAPI as any).updateUserPermissions = jest.fn().mockResolvedValue({
+      user_id: 3,
+      permissions: ['manage:expense', 'submit:daily_log', 'manage:ledger'],
+      can_view_sensitive_data: false,
+    });
+
+    render(<UserManagementPage />);
+    const permsBtn = await screen.findByText('Permissions');
+    fireEvent.click(permsBtn);
+
+    const panel = screen.getByTestId('permissions-panel-3');
+    expect(panel).toBeInTheDocument();
+
+    // manage:expense implies read:expense so Read Expenses checkbox is checked & disabled
+    const readExpensesCheckbox = screen.getByLabelText('Read Expenses') as HTMLInputElement;
+    expect(readExpensesCheckbox.checked).toBe(true);
+    expect(readExpensesCheckbox.disabled).toBe(true);
+
+    // Toggle Manage Ledger / Sheets
+    fireEvent.click(screen.getByLabelText('Manage Ledger / Sheets'));
+    await waitFor(() => {
+      expect((usersAPI as any).updateUserPermissions).toHaveBeenCalledWith(3, [
+        'manage:expense',
+        'submit:daily_log',
+        'manage:ledger',
+      ]);
+    });
+  });
 });

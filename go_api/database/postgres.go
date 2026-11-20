@@ -161,6 +161,7 @@ func runMigrations() {
 		"CREATE INDEX IF NOT EXISTS idx_daily_logs_tenant_status ON daily_log_submissions(tenant_id, status)",
 		"CREATE INDEX IF NOT EXISTS idx_daily_logs_tenant_date ON daily_log_submissions(tenant_id, log_date)",
 		"ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS can_view_sensitive_data BOOLEAN",
+		"ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS custom_permissions JSONB",
 	}
 	for _, m := range migrations {
 		if _, err := DB.Exec(m); err != nil {

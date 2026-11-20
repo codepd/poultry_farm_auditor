@@ -47,7 +47,8 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 		SELECT u.id, COALESCE(u.email, ''), COALESCE(u.phone, ''), COALESCE(u.full_name, ''),
 		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner,
 		       COALESCE(tu.can_view_sensitive_data, rp.can_view_sensitive_data,
-		                CASE WHEN tu.role IN ('OWNER', 'CO_OWNER', 'ADMIN', 'AUDITOR') THEN TRUE ELSE FALSE END)
+		                CASE WHEN tu.role IN ('OWNER', 'CO_OWNER', 'ADMIN', 'AUDITOR') THEN TRUE ELSE FALSE END),
+		       COALESCE(tu.custom_permissions::text, '')
 		FROM users u
 		JOIN tenant_users tu ON tu.user_id = u.id
 		LEFT JOIN role_permissions rp ON rp.tenant_id = tu.tenant_id AND rp.role = tu.role
@@ -70,6 +71,7 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 		Role                 string    `json:"role"`
 		IsOwner              bool      `json:"is_owner"`
 		CanViewSensitiveData bool      `json:"can_view_sensitive_data"`
+		Permissions          []string  `json:"permissions"`
 		CreatedAt            time.Time `json:"created_at"`
 		UpdatedAt            time.Time `json:"updated_at"`
 	}
@@ -77,12 +79,20 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	var users []UserResponse
 	for rows.Next() {
 		var u UserResponse
+		var customPermsRaw string
 		err := rows.Scan(
 			&u.ID, &u.Email, &u.Phone, &u.FullName, &u.IsActive,
 			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner, &u.CanViewSensitiveData,
+			&customPermsRaw,
 		)
 		if err != nil {
 			continue
+		}
+		if strings.TrimSpace(customPermsRaw) != "" && strings.TrimSpace(customPermsRaw) != "null" {
+			_ = json.Unmarshal([]byte(customPermsRaw), &u.Permissions)
+		}
+		if len(u.Permissions) == 0 {
+			u.Permissions = middleware.DefaultPermissionsForRole(u.Role, u.CanViewSensitiveData)
 		}
 		users = append(users, u)
 	}
@@ -1257,6 +1267,81 @@ func UpdateUserSensitiveAccess(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]interface{}{
 			"user_id":                 targetUserID,
 			"can_view_sensitive_data": req.CanViewSensitiveData,
+		},
+	})
+}
+
+// UpdateUserPermissions saves custom granular permissions (read:/manage:) for a specific farm member.
+func UpdateUserPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || (!perms.CanManageUsers && !middleware.HasPermission(perms.Permissions, "manage:team")) {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions to update team permissions")
+		return
+	}
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		Permissions []string `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	cleaned := make([]string, 0, len(req.Permissions))
+	seen := make(map[string]bool)
+	for _, p := range req.Permissions {
+		norm := strings.ToLower(strings.TrimSpace(p))
+		if norm != "" && !seen[norm] {
+			seen[norm] = true
+			cleaned = append(cleaned, norm)
+		}
+	}
+
+	permsJSON, err := json.Marshal(cleaned)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to encode permissions")
+		return
+	}
+
+	canViewProfit := middleware.HasPermission(cleaned, "read:profit")
+	res, err := database.DB.Exec(`
+		UPDATE tenant_users
+		SET custom_permissions = $1::jsonb,
+		    can_view_sensitive_data = $2
+		WHERE tenant_id = $3 AND user_id = $4 AND is_owner = FALSE
+	`, string(permsJSON), canViewProfit, tenantID, targetUserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update user permissions")
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		respondWithError(w, http.StatusNotFound, "Non-owner member not found in this farm")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":                 targetUserID,
+			"permissions":             cleaned,
+			"can_view_sensitive_data": canViewProfit,
 		},
 	})
 }
