@@ -577,6 +577,7 @@ export interface TenantUser {
   is_active: boolean;
   role: string;
   is_owner: boolean;
+  can_view_sensitive_data?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -666,6 +667,13 @@ export const usersAPI = {
       success: boolean;
       data: { can_view_sensitive_data: boolean; can_view_charts: boolean };
     }>('/users/manager-permissions', { can_view_sensitive_data: canViewSensitiveData });
+    return response.data.data;
+  },
+  updateUserSensitiveAccess: async (userId: number, canViewSensitiveData: boolean) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { user_id: number; can_view_sensitive_data: boolean };
+    }>(`/users/${userId}/sensitive-access`, { can_view_sensitive_data: canViewSensitiveData });
     return response.data.data;
   },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {

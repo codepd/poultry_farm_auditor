@@ -120,6 +120,7 @@ func main() {
 	protectedRouter.HandleFunc("/users/invitations/{id}", handlers.RevokeInvitation).Methods("DELETE")
 	protectedRouter.HandleFunc("/users/magic-link", handlers.GenerateUserMagicLink).Methods("POST")
 	protectedRouter.HandleFunc("/users/{id}/role", handlers.UpdateUserRole).Methods("PUT")
+	protectedRouter.HandleFunc("/users/{id}/sensitive-access", handlers.UpdateUserSensitiveAccess).Methods("PUT")
 	protectedRouter.HandleFunc("/users/{id}/transfer-ownership", handlers.TransferOwnership).Methods("POST")
 	protectedRouter.HandleFunc("/users/{id}", handlers.RemoveUser).Methods("DELETE")
 
