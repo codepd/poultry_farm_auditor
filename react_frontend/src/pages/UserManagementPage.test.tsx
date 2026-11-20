@@ -116,4 +116,24 @@ describe('UserManagementPage promote/demote/remove/transfer/revoke actions', () 
 
     confirmSpy.mockRestore();
   });
+
+  test('allows Owner to toggle Manager financial chart access checkbox', async () => {
+    (usersAPI as any).getManagerPermissions = jest.fn().mockResolvedValue({
+      can_view_sensitive_data: false,
+      can_view_charts: true,
+    });
+    (usersAPI as any).updateManagerPermissions = jest.fn().mockResolvedValue({
+      can_view_sensitive_data: true,
+      can_view_charts: true,
+    });
+
+    render(<UserManagementPage />);
+    const checkbox = await screen.findByLabelText(/Allow Managers to view all financial data/i);
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    await waitFor(() => {
+      expect((usersAPI as any).updateManagerPermissions).toHaveBeenCalledWith(true);
+    });
+  });
 });

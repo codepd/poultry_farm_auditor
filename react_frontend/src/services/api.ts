@@ -640,6 +640,34 @@ export const usersAPI = {
     const response = await api.delete<{ success: boolean; message: string }>(`/users/invitations/${invitationId}`);
     return response.data;
   },
+  getMyPermissions: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        role: string;
+        can_view_sensitive_data: boolean;
+        can_edit_transactions: boolean;
+        can_approve_transactions: boolean;
+        can_manage_users: boolean;
+        can_view_charts: boolean;
+      };
+    }>('/users/my-permissions');
+    return response.data.data;
+  },
+  getManagerPermissions: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: { can_view_sensitive_data: boolean; can_view_charts: boolean };
+    }>('/users/manager-permissions');
+    return response.data.data;
+  },
+  updateManagerPermissions: async (canViewSensitiveData: boolean) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { can_view_sensitive_data: boolean; can_view_charts: boolean };
+    }>('/users/manager-permissions', { can_view_sensitive_data: canViewSensitiveData });
+    return response.data.data;
+  },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
     const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
     return response.data;
