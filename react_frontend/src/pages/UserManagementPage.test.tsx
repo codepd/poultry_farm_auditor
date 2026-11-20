@@ -117,23 +117,26 @@ describe('UserManagementPage promote/demote/remove/transfer/revoke actions', () 
     confirmSpy.mockRestore();
   });
 
-  test('allows Owner to toggle Manager financial chart access checkbox', async () => {
-    (usersAPI as any).getManagerPermissions = jest.fn().mockResolvedValue({
-      can_view_sensitive_data: false,
-      can_view_charts: true,
-    });
-    (usersAPI as any).updateManagerPermissions = jest.fn().mockResolvedValue({
+  test('allows Owner to toggle View Profit checkbox per Manager', async () => {
+    (usersAPI.getUsers as jest.Mock).mockResolvedValue([
+      { id: 1, full_name: 'Owner', email: 'owner@example.com', phone: '', role: 'OWNER', is_owner: true, is_active: true, created_at: '', updated_at: '' },
+      { id: 3, full_name: 'Manager One', email: '', phone: '+919999999991', role: 'MANAGER', is_owner: false, can_view_sensitive_data: false, is_active: true, created_at: '', updated_at: '' },
+      { id: 4, full_name: 'Manager Two', email: '', phone: '+919999999992', role: 'MANAGER', is_owner: false, can_view_sensitive_data: true, is_active: true, created_at: '', updated_at: '' },
+    ]);
+    (usersAPI as any).updateUserSensitiveAccess = jest.fn().mockResolvedValue({
+      user_id: 3,
       can_view_sensitive_data: true,
-      can_view_charts: true,
     });
 
     render(<UserManagementPage />);
-    const checkbox = await screen.findByLabelText(/Allow Managers to view all financial data/i);
-    expect((checkbox as HTMLInputElement).checked).toBe(false);
+    const m1Checkbox = (await screen.findByLabelText('View Profit for Manager One')) as HTMLInputElement;
+    const m2Checkbox = (await screen.findByLabelText('View Profit for Manager Two')) as HTMLInputElement;
+    expect(m1Checkbox.checked).toBe(false);
+    expect(m2Checkbox.checked).toBe(true);
 
-    fireEvent.click(checkbox);
+    fireEvent.click(m1Checkbox);
     await waitFor(() => {
-      expect((usersAPI as any).updateManagerPermissions).toHaveBeenCalledWith(true);
+      expect((usersAPI as any).updateUserSensitiveAccess).toHaveBeenCalledWith(3, true);
     });
   });
 });

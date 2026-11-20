@@ -136,11 +136,12 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 		return nil, err
 	}
 
-	// Get user's role for this tenant
+	// Get user's role and optional per-user sensitive data override for this tenant
+	var userSensitiveOverride sql.NullBool
 	err = database.DB.QueryRow(`
-		SELECT role FROM tenant_users 
+		SELECT role, can_view_sensitive_data FROM tenant_users 
 		WHERE user_id = $1 AND tenant_id = $2
-	`, userID, tenantUUID).Scan(&role)
+	`, userID, tenantUUID).Scan(&role, &userSensitiveOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -158,11 +159,19 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 	)
 
 	if err == sql.ErrNoRows {
-		return defaultRolePermissions(tenantUUID, role), nil
+		def := defaultRolePermissions(tenantUUID, role)
+		if userSensitiveOverride.Valid {
+			def.CanViewSensitiveData = userSensitiveOverride.Bool
+		}
+		return def, nil
 	}
 
 	if err != nil {
 		return nil, err
+	}
+
+	if userSensitiveOverride.Valid {
+		perm.CanViewSensitiveData = userSensitiveOverride.Bool
 	}
 
 	return &perm, nil

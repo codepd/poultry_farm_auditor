@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"math"
+	"net/http"
 	"poultry-farm-api/config"
 	"strings"
 	"testing"
@@ -297,5 +298,20 @@ func TestDailyLogApprovalHelpers(t *testing.T) {
 		if got := ResolveInitialDailyLogStatus(r); got != "PENDING_APPROVAL" {
 			t.Errorf("expected %s submission to be PENDING_APPROVAL, got %s", r, got)
 		}
+	}
+}
+
+func TestResolveFrontendURL(t *testing.T) {
+	t.Setenv("FRONTEND_URL", "")
+	req, _ := http.NewRequest("POST", "https://api-dev.mykolipannai.com/api/users/invite", nil)
+	req.Header.Set("Origin", "https://mykolipannai.com")
+	if got := resolveFrontendURL(req); got != "https://mykolipannai.com" {
+		t.Errorf("expected Origin https://mykolipannai.com, got %q", got)
+	}
+
+	reqNoOrigin, _ := http.NewRequest("POST", "https://api-dev.mykolipannai.com/api/users/invite", nil)
+	reqNoOrigin.Header.Set("Referer", "https://app-dev.mykolipannai.com/team")
+	if got := resolveFrontendURL(reqNoOrigin); got != "https://app-dev.mykolipannai.com" {
+		t.Errorf("expected Referer origin https://app-dev.mykolipannai.com, got %q", got)
 	}
 }

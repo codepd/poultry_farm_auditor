@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -44,9 +45,12 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(`
 		SELECT u.id, COALESCE(u.email, ''), COALESCE(u.phone, ''), COALESCE(u.full_name, ''),
-		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner
+		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner,
+		       COALESCE(tu.can_view_sensitive_data, rp.can_view_sensitive_data,
+		                CASE WHEN tu.role IN ('OWNER', 'CO_OWNER', 'ADMIN', 'AUDITOR') THEN TRUE ELSE FALSE END)
 		FROM users u
 		JOIN tenant_users tu ON tu.user_id = u.id
+		LEFT JOIN role_permissions rp ON rp.tenant_id = tu.tenant_id AND rp.role = tu.role
 		WHERE tu.tenant_id = $1
 		ORDER BY u.full_name, u.email
 	`, tenantID)
@@ -58,15 +62,16 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type UserResponse struct {
-		ID        int       `json:"id"`
-		Email     string    `json:"email"`
-		Phone     string    `json:"phone"`
-		FullName  string    `json:"full_name"`
-		IsActive  bool      `json:"is_active"`
-		Role      string    `json:"role"`
-		IsOwner   bool      `json:"is_owner"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
+		ID                   int       `json:"id"`
+		Email                string    `json:"email"`
+		Phone                string    `json:"phone"`
+		FullName             string    `json:"full_name"`
+		IsActive             bool      `json:"is_active"`
+		Role                 string    `json:"role"`
+		IsOwner              bool      `json:"is_owner"`
+		CanViewSensitiveData bool      `json:"can_view_sensitive_data"`
+		CreatedAt            time.Time `json:"created_at"`
+		UpdatedAt            time.Time `json:"updated_at"`
 	}
 
 	var users []UserResponse
@@ -74,7 +79,7 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 		var u UserResponse
 		err := rows.Scan(
 			&u.ID, &u.Email, &u.Phone, &u.FullName, &u.IsActive,
-			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner,
+			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner, &u.CanViewSensitiveData,
 		)
 		if err != nil {
 			continue
@@ -218,10 +223,7 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:4300"
-	}
+	frontendURL := resolveFrontendURL(r)
 
 	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
 	invitationLink := fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
@@ -318,10 +320,7 @@ func GenerateUserMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:4300"
-	}
+	frontendURL := resolveFrontendURL(r)
 	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -1182,6 +1181,82 @@ func UpdateManagerPermissions(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]interface{}{
 			"can_view_sensitive_data": req.CanViewSensitiveData,
 			"can_view_charts":         true,
+		},
+	})
+}
+
+func resolveFrontendURL(r *http.Request) string {
+	if envURL := strings.TrimRight(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/"); envURL != "" {
+		return envURL
+	}
+	if r != nil {
+		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
+			return origin
+		}
+		if ref := strings.TrimSpace(r.Header.Get("Referer")); ref != "" {
+			if parsed, err := url.Parse(ref); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+				return parsed.Scheme + "://" + parsed.Host
+			}
+		}
+		if strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1") {
+			return "http://localhost:4300"
+		}
+	}
+	return "https://mykolipannai.com"
+}
+
+// UpdateUserSensitiveAccess sets per-user can_view_sensitive_data (e.g., granting a specific Manager profit access).
+func UpdateUserSensitiveAccess(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Only Owner, Co-Owner, or Admin can update user profit access")
+		return
+	}
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		CanViewSensitiveData bool `json:"can_view_sensitive_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	res, err := database.DB.Exec(`
+		UPDATE tenant_users
+		SET can_view_sensitive_data = $1
+		WHERE tenant_id = $2 AND user_id = $3
+	`, req.CanViewSensitiveData, tenantID, targetUserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update user profit access")
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		respondWithError(w, http.StatusNotFound, "Member not found in this farm")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":                 targetUserID,
+			"can_view_sensitive_data": req.CanViewSensitiveData,
 		},
 	})
 }

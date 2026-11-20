@@ -36,8 +36,6 @@ const UserManagementPage: React.FC = () => {
   const [inviteRole, setInviteRole] = useState('OTHER_USER');
   const [inviting, setInviting] = useState(false);
   const [countryCodes, setCountryCodes] = useState<CountryCodeInfo[]>([]);
-  const [managerCanViewAll, setManagerCanViewAll] = useState(false);
-  const [savingManagerPerms, setSavingManagerPerms] = useState(false);
 
   const canManagePerms = Boolean(
     currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN'].includes(currentTenant.role)
@@ -52,20 +50,12 @@ const UserManagementPage: React.FC = () => {
       ]);
       setUsers(usersData);
       setInvitations(invitationsData);
-      if (canManagePerms && usersAPI?.getManagerPermissions) {
-        try {
-          const mp = await usersAPI.getManagerPermissions();
-          setManagerCanViewAll(Boolean(mp?.can_view_sensitive_data));
-        } catch {
-          // ignore
-        }
-      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [canManagePerms]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -358,47 +348,6 @@ const UserManagementPage: React.FC = () => {
         </div>
       )}
 
-      {canManagePerms && (
-        <div
-          className="invite-form-card"
-          style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}
-        >
-          <div>
-            <strong style={{ display: 'block', marginBottom: '0.2rem' }}>Manager Chart & Profit Access</strong>
-            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-              By default, Managers see Expenses & Farm Progress only. Enable this to let Managers view Sales, Profit & Net Profit charts.
-            </span>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={managerCanViewAll}
-              disabled={savingManagerPerms}
-              onChange={async (e) => {
-                const nextVal = e.target.checked;
-                setSavingManagerPerms(true);
-                setError('');
-                setSuccessMsg('');
-                try {
-                  await usersAPI.updateManagerPermissions(nextVal);
-                  setManagerCanViewAll(nextVal);
-                  setSuccessMsg(
-                    nextVal
-                      ? 'Managers can now view all Sales & Profit charts.'
-                      : 'Managers are now restricted to Expenses & Farm Progress.'
-                  );
-                } catch (err: any) {
-                  setError(err.response?.data?.error || 'Failed to update manager permissions');
-                } finally {
-                  setSavingManagerPerms(false);
-                }
-              }}
-            />
-            <span>Allow Managers to view all financial data</span>
-          </label>
-        </div>
-      )}
-
       <section className="section">
         <h2>Members ({users.length})</h2>
         {users.length === 0 ? (
@@ -441,6 +390,42 @@ const UserManagementPage: React.FC = () => {
                           </option>
                         ))}
                       </select>
+                      {canManagePerms && u.role === 'MANAGER' && (
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            color: '#334155',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`View Profit for ${u.full_name || u.email || u.phone || u.id}`}
+                            checked={Boolean(u.can_view_sensitive_data)}
+                            onChange={async (e) => {
+                              const nextVal = e.target.checked;
+                              setError('');
+                              setSuccessMsg('');
+                              try {
+                                await usersAPI.updateUserSensitiveAccess(u.id, nextVal);
+                                setUsers((prev) =>
+                                  prev.map((m) => (m.id === u.id ? { ...m, can_view_sensitive_data: nextVal } : m))
+                                );
+                                setSuccessMsg(
+                                  `${u.full_name || 'Manager'} ${nextVal ? 'can now view' : 'no longer views'} Sales & Profit charts.`
+                                );
+                              } catch (err: any) {
+                                setError(err.response?.data?.error || 'Failed to update manager profit access');
+                              }
+                            }}
+                          />
+                          <span>View Profit</span>
+                        </label>
+                      )}
                       {isCurrentUserOwner && u.role === 'CO_OWNER' && (
                         <button
                           type="button"
