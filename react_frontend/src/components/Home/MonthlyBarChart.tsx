@@ -39,11 +39,13 @@ interface MonthlyData {
 interface MonthlyBarChartProps {
   onMonthClick: (year: number, month: number) => void;
   disableTooltipOnMobile?: boolean;
+  canViewSensitiveData?: boolean;
 }
 
 const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
   onMonthClick,
   disableTooltipOnMobile = false,
+  canViewSensitiveData = true,
 }) => {
   const { isAuthenticated } = useAuth();
   const { t, language } = useLanguage();
@@ -144,10 +146,12 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
           <div className="tooltip-header">
             {data.monthFullName} {data.year}
           </div>
-          <div className="tooltip-item sales">
-            <span className="tooltip-label">Sales (Egg Income):</span>
-            <span className="tooltip-value">₹{data.sales.toLocaleString('en-IN')}</span>
-          </div>
+          {canViewSensitiveData && (
+            <div className="tooltip-item sales">
+              <span className="tooltip-label">Sales (Egg Income):</span>
+              <span className="tooltip-value">₹{data.sales.toLocaleString('en-IN')}</span>
+            </div>
+          )}
           <div className="tooltip-item expense">
             <span className="tooltip-label">Total Expenses:</span>
             <span className="tooltip-value">₹{data.total_expense.toLocaleString('en-IN')}</span>
@@ -167,20 +171,26 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
             <div>• Medicine: ₹{data.medicine_expense.toLocaleString('en-IN')}</div>
             <div>• Labor: ₹{data.labor_expense.toLocaleString('en-IN')}</div>
             <div>• Other Overheads: ₹{data.other_expense.toLocaleString('en-IN')}</div>
-            <div>• Other Income (Hen Sales): ₹{(data.other_income || 0).toLocaleString('en-IN')}</div>
-            <div>• TDS: ₹{(data.total_tds || 0).toLocaleString('en-IN')}</div>
-            <div>• Discounts: ₹{(data.total_discounts || 0).toLocaleString('en-IN')}</div>
+            {canViewSensitiveData && (
+              <>
+                <div>• Other Income (Hen Sales): ₹{(data.other_income || 0).toLocaleString('en-IN')}</div>
+                <div>• TDS: ₹{(data.total_tds || 0).toLocaleString('en-IN')}</div>
+                <div>• Discounts: ₹{(data.total_discounts || 0).toLocaleString('en-IN')}</div>
+              </>
+            )}
           </div>
-          {data.ledger_net_profit !== undefined && (
+          {canViewSensitiveData && data.ledger_net_profit !== undefined && (
             <div className="tooltip-item" style={{ fontSize: '0.85em', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
               <span className="tooltip-label">Statement Net Profit:</span>
               <span className="tooltip-value">₹{data.ledger_net_profit.toLocaleString('en-IN')}</span>
             </div>
           )}
-          <div className={`tooltip-item ${data.net_profit >= 0 ? 'profit' : 'loss'}`}>
-            <span className="tooltip-label">Farm Overall Profit:</span>
-            <span className="tooltip-value">₹{data.net_profit.toLocaleString('en-IN')}</span>
-          </div>
+          {canViewSensitiveData && (
+            <div className={`tooltip-item ${data.net_profit >= 0 ? 'profit' : 'loss'}`}>
+              <span className="tooltip-label">Farm Overall Profit:</span>
+              <span className="tooltip-value">₹{data.net_profit.toLocaleString('en-IN')}</span>
+            </div>
+          )}
           <div className="tooltip-note">Click to see full details</div>
         </div>
       );
@@ -272,25 +282,27 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
               wrapperStyle={{ paddingTop: isMobile ? '6px' : '20px', fontSize: isMobile ? '11px' : '13px' }}
               iconType="square"
             />
-            <Bar
-              dataKey="salesDisplay"
-              name={t('chart.sales')}
-              fill="#4CAF50"
-              radius={[4, 4, 0, 0]}
-              onClick={(data: any) => {
-                if (data && data.payload) {
-                  onMonthClick(data.payload.year, data.payload.month);
-                }
-              }}
-            >
-              {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-sales-${index}`}
-                  cursor="pointer"
-                  style={{ cursor: 'pointer' }}
-                />
-              ))}
-            </Bar>
+            {canViewSensitiveData && (
+              <Bar
+                dataKey="salesDisplay"
+                name={t('chart.sales')}
+                fill="#4CAF50"
+                radius={[4, 4, 0, 0]}
+                onClick={(data: any) => {
+                  if (data && data.payload) {
+                    onMonthClick(data.payload.year, data.payload.month);
+                  }
+                }}
+              >
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-sales-${index}`}
+                    cursor="pointer"
+                    style={{ cursor: 'pointer' }}
+                  />
+                ))}
+              </Bar>
+            )}
             <Bar
               dataKey="expensesDisplay"
               name={t('chart.expense')}
@@ -314,24 +326,35 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
         </ResponsiveContainer>
       </div>
       <div className="chart-summary">
-        <div className="summary-item">
-          <span className="summary-label">{t('chart.sales')} (12M):</span>
-          <span className="summary-value sales">
-            ₹{data.reduce((sum, d) => sum + d.sales, 0).toLocaleString('en-IN')}
-          </span>
-        </div>
+        {canViewSensitiveData && (
+          <div className="summary-item">
+            <span className="summary-label">{t('chart.sales')} (12M):</span>
+            <span className="summary-value sales">
+              ₹{data.reduce((sum, d) => sum + d.sales, 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        )}
         <div className="summary-item">
           <span className="summary-label">{t('chart.expense')} (12M):</span>
           <span className="summary-value expense">
             ₹{data.reduce((sum, d) => sum + d.total_expense, 0).toLocaleString('en-IN')}
           </span>
         </div>
-        <div className="summary-item">
-          <span className="summary-label">{t('chart.profit')} (12M):</span>
-          <span className={`summary-value ${data.reduce((sum, d) => sum + d.net_profit, 0) >= 0 ? 'profit' : 'loss'}`}>
-            ₹{data.reduce((sum, d) => sum + d.net_profit, 0).toLocaleString('en-IN')}
-          </span>
-        </div>
+        {canViewSensitiveData ? (
+          <div className="summary-item">
+            <span className="summary-label">{t('chart.profit')} (12M):</span>
+            <span className={`summary-value ${data.reduce((sum, d) => sum + d.net_profit, 0) >= 0 ? 'profit' : 'loss'}`}>
+              ₹{data.reduce((sum, d) => sum + d.net_profit, 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        ) : (
+          <div className="summary-item">
+            <span className="summary-label">Feed (12M):</span>
+            <span className="summary-value expense">
+              ₹{data.reduce((sum, d) => sum + d.feed_expense, 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

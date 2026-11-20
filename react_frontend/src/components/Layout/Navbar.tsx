@@ -14,12 +14,13 @@ const Navbar: React.FC = () => {
 
   const canManageUsers = Boolean(currentTenant && MANAGE_ROLES.includes(currentTenant.role));
   const canEdit = Boolean(currentTenant && EDIT_ROLES.includes(currentTenant.role));
+  const canViewCharts = Boolean(currentTenant && currentTenant.role !== 'OTHER_USER');
 
   const navItems = [
     { path: '/', label: t('nav.home'), mobileLabel: t('nav.home'), icon: '🏠' },
     ...(canEdit ? [{ path: '/expenses', label: t('nav.expenses'), mobileLabel: t('nav.expenses'), icon: '💰' }] : []),
     { path: '/hen-batches', label: t('nav.henBatches'), mobileLabel: t('nav.henBatchesShort'), icon: '🐔' },
-    { path: '/price-history', label: t('nav.priceHistory'), mobileLabel: t('nav.priceHistoryShort'), icon: '📈' },
+    ...(canViewCharts ? [{ path: '/price-history', label: t('nav.priceHistory'), mobileLabel: t('nav.priceHistoryShort'), icon: '📈' }] : []),
     ...(canEdit ? [{ path: '/upload-sheets', label: t('nav.uploadSheets'), mobileLabel: t('nav.uploadSheetsShort'), icon: '📤' }] : []),
     ...(canManageUsers ? [{ path: '/team', label: t('nav.team'), mobileLabel: t('nav.team'), icon: '👥' }] : []),
   ];

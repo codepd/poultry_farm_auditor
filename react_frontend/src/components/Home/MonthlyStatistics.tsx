@@ -10,11 +10,12 @@ import './MonthlyStatistics.css';
 interface MonthlyStatisticsProps {
   year: number;
   month: number;
+  canViewSensitiveData?: boolean;
 }
 
 type ProfitPreset = 'production' | 'comprehensive' | 'ledger' | 'flock' | 'custom';
 
-const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) => {
+const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canViewSensitiveData = true }) => {
   const { isAuthenticated, currentTenant } = useAuth();
   const { language, t, tItem, tStage, formatMonthYear } = useLanguage();
   const navigate = useNavigate();
@@ -409,7 +410,47 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
         </div>
       )}
 
-      {/* Hero Profit Banner with Interactive Toggles */}
+      {/* Hero Profit Banner (Full Access) OR Expense & Farm Progress Summary (Manager Operational View) */}
+      {!canViewSensitiveData ? (
+        <div className="profit-hero-card" data-testid="manager-expense-summary">
+          <div className="profit-hero-top">
+            <div className="profit-hero-main">
+              <span className="profit-label">Monthly Expenses &amp; Farm Progress</span>
+              <div className="profit-amount" style={{ color: '#0f172a' }}>
+                {formatCurrency(calcDetails.totalFeedCost + calcDetails.meds + calcDetails.overheads)}
+              </div>
+              <div className="profit-meta">
+                <span className="profit-flow">
+                  Layer Feed: <strong>{formatLakhs(calcDetails.layerFeedCost)}</strong> |{' '}
+                  Rearing Feed: <strong>{formatLakhs(calcDetails.rearingFeedCost)}</strong> |{' '}
+                  Medicine: <strong>{formatLakhs(calcDetails.meds)}</strong> |{' '}
+                  Labor &amp; Overheads: <strong>{formatLakhs(calcDetails.overheads)}</strong>
+                </span>
+              </div>
+            </div>
+            <div className="preset-selector">
+              <span className="preset-label">Operational Progress</span>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.88rem' }}>
+                <span>🐔 Flock: <strong>{(data.actual_head_count || data.estimated_hens || 0).toLocaleString('en-IN')}</strong></span>
+                <span>🥚 Egg %: <strong>{(data.egg_percentage || 0).toFixed(1)}%</strong></span>
+                <span>🌾 Feed: <strong>{(data.feed_purchased_tonne || 0).toFixed(2)} T</strong></span>
+                <span>🥚 Eggs Sold: <strong>{(data.total_eggs_sold || 0).toLocaleString('en-IN')}</strong></span>
+              </div>
+            </div>
+          </div>
+          <div className="formula-banner">
+            <span className="formula-badge">COST DRIVERS</span>
+            <span className="formula-item">Layer Feed ({formatLakhs(calcDetails.layerFeedCost)})</span>
+            <span className="formula-item add">+ Rearing Feed ({formatLakhs(calcDetails.rearingFeedCost)})</span>
+            <span className="formula-item add">+ Medicine ({formatLakhs(calcDetails.meds)})</span>
+            <span className="formula-item add">+ Overheads ({formatLakhs(calcDetails.overheads)})</span>
+            <span className="formula-equals">=</span>
+            <span className="formula-result">
+              {formatCurrency(calcDetails.totalFeedCost + calcDetails.meds + calcDetails.overheads)}
+            </span>
+          </div>
+        </div>
+      ) : (
       <div className="profit-hero-card">
         <div className="profit-hero-top">
           <div className="profit-hero-main">
@@ -547,6 +588,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
           <span className="formula-result">{formatCurrency(calcDetails.profit)}</span>
         </div>
       </div>
+      )}
 
       {/* Per-Egg Unit Economics & Feed Efficiency Strip */}
       {data.total_eggs_sold > 0 && (
@@ -556,12 +598,14 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
             <span className="section-badge">{t('stats.unitEconomicsBadge')}</span>
           </div>
           <div className="unit-economics-grid">
-            <div className="ue-item">
-              <span className="ue-label">{t('stats.avgSellingPricePerEgg')}</span>
-              <span className="ue-val">
-                ₹{(calcDetails.eggRev / data.total_eggs_sold).toFixed(2)}
-              </span>
-            </div>
+            {canViewSensitiveData && (
+              <div className="ue-item">
+                <span className="ue-label">{t('stats.avgSellingPricePerEgg')}</span>
+                <span className="ue-val">
+                  ₹{(calcDetails.eggRev / data.total_eggs_sold).toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="ue-item">
               <span className="ue-label">{t('stats.layerFeedCostPerEgg')}</span>
               <span className="ue-val">
@@ -574,12 +618,14 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month }) =>
                 ₹{(calcDetails.totalOutflow / data.total_eggs_sold).toFixed(2)}
               </span>
             </div>
-            <div className="ue-item highlight">
-              <span className="ue-label">{t('stats.netMarginPerEgg')}</span>
-              <span className={`ue-val ${calcDetails.profit >= 0 ? 'positive' : 'negative'}`}>
-                ₹{(calcDetails.profit / data.total_eggs_sold).toFixed(2)}
-              </span>
-            </div>
+            {canViewSensitiveData && (
+              <div className="ue-item highlight">
+                <span className="ue-label">{t('stats.netMarginPerEgg')}</span>
+                <span className={`ue-val ${calcDetails.profit >= 0 ? 'positive' : 'negative'}`}>
+                  ₹{(calcDetails.profit / data.total_eggs_sold).toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="ue-item">
               <span className="ue-label">{t('stats.eggsPerKgFeed')}</span>
               <span className="ue-val">

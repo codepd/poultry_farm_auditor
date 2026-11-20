@@ -1075,3 +1075,113 @@ func RevokeInvitation(w http.ResponseWriter, r *http.Request) {
 		"message": "Invitation cancelled",
 	})
 }
+
+// GetMyPermissions returns the effective RolePermission for the authenticated user in the current tenant.
+func GetMyPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load permissions")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    perms,
+	})
+}
+
+// GetManagerPermissions returns whether MANAGER role can view sensitive financial data (Sales/Profit charts) in this tenant.
+func GetManagerPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var canViewSensitive, canViewCharts bool
+	err = database.DB.QueryRow(`
+		SELECT can_view_sensitive_data, can_view_charts
+		FROM role_permissions
+		WHERE tenant_id = $1 AND role = 'MANAGER'
+	`, tenantID).Scan(&canViewSensitive, &canViewCharts)
+	if err == sql.ErrNoRows {
+		canViewSensitive = false
+		canViewCharts = true
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load manager permissions")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"can_view_sensitive_data": canViewSensitive,
+			"can_view_charts":         canViewCharts,
+		},
+	})
+}
+
+// UpdateManagerPermissions allows Owner/Co-Owner/Admin to toggle whether Managers can view all financial charts & profit data.
+func UpdateManagerPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Only Owner, Co-Owner, or Admin can update manager permissions")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		CanViewSensitiveData bool `json:"can_view_sensitive_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	_, err = database.DB.Exec(`
+		INSERT INTO role_permissions (
+			tenant_id, role, can_view_sensitive_data, can_edit_transactions,
+			can_approve_transactions, can_manage_users, can_view_charts
+		) VALUES ($1, 'MANAGER', $2, TRUE, TRUE, FALSE, TRUE)
+		ON CONFLICT (tenant_id, role) DO UPDATE SET
+			can_view_sensitive_data = EXCLUDED.can_view_sensitive_data,
+			updated_at = CURRENT_TIMESTAMP
+	`, tenantID, req.CanViewSensitiveData)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update manager permissions")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"can_view_sensitive_data": req.CanViewSensitiveData,
+			"can_view_charts":         true,
+		},
+	})
+}

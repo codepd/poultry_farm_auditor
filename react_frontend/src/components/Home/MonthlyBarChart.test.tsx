@@ -104,4 +104,40 @@ describe('MonthlyBarChart current month live toggle', () => {
     expect(toggledMonths).toContain(`${curYear}-${curMonth}`);
     expect(screen.getByText(/Current Month Included \(Live\)/i)).toBeInTheDocument();
   });
+
+  test('hides Sales and Profit summaries when canViewSensitiveData is false (Manager view)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      json: async () => ({
+        success: true,
+        data: [
+          {
+            year: 2026,
+            month: 9,
+            month_name: 'Sep',
+            sales: 0,
+            feed_expense: 50000,
+            medicine_expense: 2000,
+            labor_expense: 5000,
+            other_expense: 1000,
+            other_income: 0,
+            total_discounts: 0,
+            total_tds: 0,
+            total_expense: 58000,
+            net_profit: -58000,
+          },
+        ],
+      }),
+    }) as any;
+
+    render(<MonthlyBarChart onMonthClick={jest.fn()} canViewSensitiveData={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('monthly-bar-chart')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/chart\.sales/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/chart\.profit/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/chart\.expense/i)).toBeInTheDocument();
+    expect(screen.getByText(/Feed \(12M\):/i)).toBeInTheDocument();
+  });
 });
