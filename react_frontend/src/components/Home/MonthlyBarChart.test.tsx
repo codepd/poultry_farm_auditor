@@ -15,8 +15,8 @@ jest.mock('recharts', () => {
     XAxis: () => <div />,
     YAxis: () => <div />,
     CartesianGrid: () => <div />,
-    Tooltip: () => <div />,
-    Legend: () => <div />,
+    Tooltip: ({ wrapperStyle }: any) => <div data-testid="chart-tooltip-wrapper" data-zindex={wrapperStyle?.zIndex} />,
+    Legend: ({ verticalAlign }: any) => <div data-testid="chart-legend" data-valign={verticalAlign} />,
     Cell: () => <div />,
   };
 });
@@ -139,5 +139,7 @@ describe('MonthlyBarChart current month live toggle', () => {
     expect(screen.queryByText(/chart\.profit/i)).not.toBeInTheDocument();
     expect(screen.getByText(/chart\.expense/i)).toBeInTheDocument();
     expect(screen.getByText(/Feed \(12M\):/i)).toBeInTheDocument();
+    expect(screen.getByTestId('chart-legend')).toHaveAttribute('data-valign', 'top');
+    expect(screen.getByTestId('chart-tooltip-wrapper')).toHaveAttribute('data-zindex', '1000');
   });
 });

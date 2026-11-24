@@ -20,6 +20,7 @@ jest.mock('../services/api', () => ({
     reconcileUpload: jest.fn(),
     commitUpload: jest.fn(),
     uploadLedger: jest.fn(),
+    openUploadFile: jest.fn(),
   },
 }));
 
@@ -196,6 +197,18 @@ describe('DataUploadPage Import Mode selection', () => {
     fireEvent.click(screen.getByText(/Approve & Save to Farm Records/i));
     await waitFor(() => {
       expect(adminAPI.commitUpload).toHaveBeenCalledWith(42, 'append_file', [901]);
+    });
+  });
+
+  test('streams S3 ledger file via authenticated openUploadFile on View File click', async () => {
+    (adminAPI.openUploadFile as jest.Mock).mockResolvedValue(undefined);
+    render(<DataUploadPage />);
+
+    const viewBtn = await screen.findByText(/upload\.viewFileBtn/i);
+    fireEvent.click(viewBtn);
+
+    await waitFor(() => {
+      expect(adminAPI.openUploadFile).toHaveBeenCalledWith(42);
     });
   });
 });

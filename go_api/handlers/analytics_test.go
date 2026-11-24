@@ -344,3 +344,26 @@ func TestResolveFrontendURL(t *testing.T) {
 		t.Errorf("expected Referer origin https://app-dev.mykolipannai.com, got %q", got)
 	}
 }
+
+func TestComputeAgeBracketAndBatchYields(t *testing.T) {
+	batches := []BatchAgeSnapshot{
+		{BatchID: 1, BatchName: "Pullet Batch", AgeWeeks: 20, HenCount: 1000},
+		{BatchID: 2, BatchName: "Ramp Batch", AgeWeeks: 25, HenCount: 1000},
+		{BatchID: 3, BatchName: "Peak Batch", AgeWeeks: 35, HenCount: 2000},
+	}
+	eggQty := map[string]float64{
+		"SMALL EGG":  15000, // 15000 / (1000 * 30) = 50%
+		"MEDIUM EGG": 24000, // 24000 / (1000 * 30) = 80%
+		"LARGE EGG":  54000, // 54000 / (2000 * 30) = 90%
+	}
+	brackets, batchYields := ComputeAgeBracketAndBatchYields(batches, eggQty, 30)
+	if len(brackets) != 3 {
+		t.Fatalf("expected 3 age brackets, got %d", len(brackets))
+	}
+	if brackets[0].YieldPct != 50.0 || brackets[1].YieldPct != 80.0 || brackets[2].YieldPct != 90.0 {
+		t.Errorf("unexpected bracket yields: %+v", brackets)
+	}
+	if len(batchYields) != 3 || batchYields[0].MatchedEggType != "PULLET / SMALL" || batchYields[2].MatchedEggType != "LARGE EGG" {
+		t.Errorf("unexpected batch yields: %+v", batchYields)
+	}
+}

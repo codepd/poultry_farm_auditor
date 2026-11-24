@@ -1669,6 +1669,47 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		flockAlerts = []map[string]interface{}{}
 	}
 
+	// Query active hen batches for age-bracket (18-22w, 22-28w, 28w+) & egg-weight batch yield matching
+	var batchSnapshots []BatchAgeSnapshot
+	bRows, bErr := database.DB.Query(`
+		SELECT id, COALESCE(batch_name, ''), date_added, COALESCE(age_weeks, 0), COALESCE(age_days, 0), COALESCE(current_count, 0)
+		FROM hen_batches
+		WHERE tenant_id = $1 AND current_count > 0
+		ORDER BY id ASC
+	`, tenantID)
+	if bErr == nil {
+		monthMid := monthStart.AddDate(0, 0, daysInMonth/2)
+		for bRows.Next() {
+			var bID, bWeeks, bDays int
+			var bName string
+			var bDate time.Time
+			var bCount float64
+			if err := bRows.Scan(&bID, &bName, &bDate, &bWeeks, &bDays, &bCount); err != nil {
+				continue
+			}
+			totalDaysAtMid := bWeeks*7 + bDays + int(monthMid.Sub(bDate).Hours()/24)
+			if totalDaysAtMid < 0 {
+				continue
+			}
+			batchSnapshots = append(batchSnapshots, BatchAgeSnapshot{
+				BatchID:   bID,
+				BatchName: bName,
+				AgeWeeks:  totalDaysAtMid / 7,
+				HenCount:  bCount,
+			})
+		}
+		bRows.Close()
+	}
+	eggQtyByType := make(map[string]float64)
+	for _, eb := range eggBreakdownFinal {
+		if tName, ok := eb["type"].(string); ok {
+			if qVal, okQ := eb["quantity"].(float64); okQ {
+				eggQtyByType[strings.ToUpper(strings.TrimSpace(tName))] += qVal
+			}
+		}
+	}
+	ageBracketYields, batchYields := ComputeAgeBracketAndBatchYields(batchSnapshots, eggQtyByType, daysInMonth)
+
 	summary := map[string]interface{}{
 		"year":                             year,
 		"month":                            month,
@@ -1714,6 +1755,8 @@ func GetEnhancedMonthlySummary(w http.ResponseWriter, r *http.Request) {
 		"eggs_per_kg_layer_feed":           eggsPerKgLayerFeed,
 		"layer_feed_grams_per_hen_per_day": layerFeedGramsPerHenPerDay,
 		"flock_alerts":                     flockAlerts,
+		"age_bracket_yields":               ageBracketYields,
+		"batch_yields":                     batchYields,
 	}
 
 	payload := map[string]interface{}{
@@ -2690,4 +2733,160 @@ func GetMonthlyBreakdown(w http.ResponseWriter, r *http.Request) {
 			"total_count":     len(transactions),
 		},
 	})
+}
+
+type BatchAgeSnapshot struct {
+	BatchID   int     `json:"batch_id"`
+	BatchName string  `json:"batch_name"`
+	AgeWeeks  int     `json:"age_weeks"`
+	HenCount  float64 `json:"hen_count"`
+}
+
+type AgeBracketYield struct {
+	Bracket        string  `json:"bracket"`
+	Label          string  `json:"label"`
+	MatchedEggType string  `json:"matched_egg_type"`
+	HenCount       float64 `json:"hen_count"`
+	SharePct       float64 `json:"share_pct"`
+	YieldPct       float64 `json:"yield_pct"`
+}
+
+type BatchYieldEstimate struct {
+	BatchID        int     `json:"batch_id"`
+	BatchName      string  `json:"batch_name"`
+	AgeWeeks       int     `json:"age_weeks"`
+	HenCount       float64 `json:"hen_count"`
+	Bracket        string  `json:"bracket"`
+	MatchedEggType string  `json:"matched_egg_type"`
+	EstimatedYield float64 `json:"estimated_yield_pct"`
+}
+
+// ComputeAgeBracketAndBatchYields groups laying hens into 18-22w, 22-28w, and 28w+ brackets
+// and matches egg weight/size classes (SMALL ~45-50g -> 18-22w, MEDIUM ~50-55g -> 22-28w, LARGE ~55g+ -> 28w+)
+// to estimate per-bracket and per-batch laying percentages.
+func ComputeAgeBracketAndBatchYields(
+	batches []BatchAgeSnapshot,
+	eggQtyByType map[string]float64,
+	daysInMonth int,
+) ([]AgeBracketYield, []BatchYieldEstimate) {
+	if daysInMonth <= 0 {
+		daysInMonth = 30
+	}
+	type bracketDef struct {
+		key     string
+		label   string
+		eggType string
+	}
+	defs := []bracketDef{
+		{key: "18_22w", label: "18–22 Weeks (Early Lay)", eggType: "SMALL EGG"},
+		{key: "22_28w", label: "22–28 Weeks (Ramp-Up)", eggType: "MEDIUM EGG"},
+		{key: "28w_plus", label: "28+ Weeks (Peak Lay)", eggType: "LARGE EGG"},
+	}
+
+	classifyBracket := func(ageWeeks int) string {
+		if ageWeeks >= 18 && ageWeeks < 22 {
+			return "18_22w"
+		}
+		if ageWeeks >= 22 && ageWeeks < 28 {
+			return "22_28w"
+		}
+		if ageWeeks >= 28 {
+			return "28w_plus"
+		}
+		return ""
+	}
+
+	hensByBracket := map[string]float64{"18_22w": 0, "22_28w": 0, "28w_plus": 0}
+	totalLayingHens := 0.0
+	for _, b := range batches {
+		br := classifyBracket(b.AgeWeeks)
+		if br != "" && b.HenCount > 0 {
+			hensByBracket[br] += b.HenCount
+			totalLayingHens += b.HenCount
+		}
+	}
+
+	totalEggs := 0.0
+	smallEggs := 0.0
+	mediumEggs := 0.0
+	largeEggs := 0.0
+	for k, v := range eggQtyByType {
+		totalEggs += v
+		u := strings.ToUpper(k)
+		switch {
+		case strings.Contains(u, "SMALL") || strings.Contains(u, "PULLET"):
+			smallEggs += v
+		case strings.Contains(u, "MEDIUM"):
+			mediumEggs += v
+		case strings.Contains(u, "LARGE") || strings.Contains(u, "BIG") || strings.Contains(u, "CORRECT") || strings.Contains(u, "EXPORT"):
+			largeEggs += v
+		}
+	}
+	eggsByBracket := map[string]float64{
+		"18_22w":   smallEggs,
+		"22_28w":   mediumEggs,
+		"28w_plus": largeEggs,
+	}
+
+	useProportionalFallback := smallEggs == 0 && mediumEggs == 0 && totalEggs > 0
+	bracketYields := make([]AgeBracketYield, 0, 3)
+	yieldByBracket := map[string]float64{}
+
+	for _, d := range defs {
+		hens := hensByBracket[d.key]
+		share := 0.0
+		if totalLayingHens > 0 && hens > 0 {
+			share = sanitizeFloat((hens / totalLayingHens) * 100.0)
+		}
+		eggs := eggsByBracket[d.key]
+		if useProportionalFallback && totalLayingHens > 0 && hens > 0 {
+			eggs = totalEggs * (hens / totalLayingHens)
+		}
+		yield := 0.0
+		if hens > 0 && eggs > 0 {
+			yield = sanitizeFloat((eggs / (hens * float64(daysInMonth))) * 100.0)
+		}
+		yieldByBracket[d.key] = yield
+		matchedLabel := d.eggType
+		if useProportionalFallback || eggs == 0 {
+			matchedLabel = ""
+		}
+		bracketYields = append(bracketYields, AgeBracketYield{
+			Bracket:        d.key,
+			Label:          d.label,
+			MatchedEggType: matchedLabel,
+			HenCount:       hens,
+			SharePct:       share,
+			YieldPct:       yield,
+		})
+	}
+
+	var batchYields []BatchYieldEstimate
+	for _, b := range batches {
+		br := classifyBracket(b.AgeWeeks)
+		if br == "" || b.HenCount <= 0 {
+			continue
+		}
+		matchedType := ""
+		if !useProportionalFallback {
+			if br == "18_22w" && smallEggs > 0 {
+				matchedType = "PULLET / SMALL"
+			} else if br == "22_28w" && mediumEggs > 0 {
+				matchedType = "MEDIUM EGG"
+			} else if br == "28w_plus" && largeEggs > 0 {
+				matchedType = "LARGE EGG"
+			}
+		}
+		batchYields = append(batchYields, BatchYieldEstimate{
+			BatchID:        b.BatchID,
+			BatchName:      b.BatchName,
+			AgeWeeks:       b.AgeWeeks,
+			HenCount:       b.HenCount,
+			Bracket:        br,
+			MatchedEggType: matchedType,
+			EstimatedYield: yieldByBracket[br],
+		})
+	}
+
+	return bracketYields, batchYields
 }

@@ -390,16 +390,24 @@ const DataUploadPage: React.FC = () => {
                 {committing ? 'Saving...' : 'Confirm & Save to Price History'}
               </button>
             )}
-            {archivedFeedCard.download_url && (
-              <a
-                href={archivedFeedCard.download_url}
-                target="_blank"
-                rel="noopener noreferrer"
+            {(archivedFeedCard.upload_id || archivedFeedCard.download_url) && (
+              <button
+                type="button"
                 className="view-btn"
-                style={{ textDecoration: 'none' }}
+                onClick={() => {
+                  if (archivedFeedCard.upload_id && adminAPI?.openUploadFile) {
+                    adminAPI.openUploadFile(archivedFeedCard.upload_id).catch(() => {
+                      if (archivedFeedCard.download_url) {
+                        window.open(archivedFeedCard.download_url, '_blank', 'noopener,noreferrer');
+                      }
+                    });
+                  } else if (archivedFeedCard.download_url) {
+                    window.open(archivedFeedCard.download_url, '_blank', 'noopener,noreferrer');
+                  }
+                }}
               >
                 View Uploaded File
-              </a>
+              </button>
             )}
             <button className="another-btn" onClick={handleReset}>
               Upload Another Document
@@ -929,15 +937,24 @@ const DataUploadPage: React.FC = () => {
                           {t('upload.reviewBtn')}
                         </button>
                       )}
-                      {rec.download_url && (
-                        <a
-                          href={rec.download_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {(rec.id || rec.download_url) && (
+                        <button
+                          type="button"
                           className="vault-action-btn download"
+                          onClick={() => {
+                            if (rec.id && adminAPI?.openUploadFile) {
+                              adminAPI.openUploadFile(rec.id).catch(() => {
+                                if (rec.download_url) {
+                                  window.open(rec.download_url, '_blank', 'noopener,noreferrer');
+                                }
+                              });
+                            } else if (rec.download_url) {
+                              window.open(rec.download_url, '_blank', 'noopener,noreferrer');
+                            }
+                          }}
                         >
                           {t('upload.viewFileBtn')}
-                        </a>
+                        </button>
                       )}
                     </td>
                   </tr>

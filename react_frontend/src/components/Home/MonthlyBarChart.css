@@ -29,12 +29,14 @@
 }
 
 .chart-tooltip {
-  background: white;
+  background: #ffffff;
   border: 1px solid #ddd;
   border-radius: 8px;
-  padding: 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0.75rem 0.9rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
   min-width: 250px;
+  position: relative;
+  z-index: 1000;
 }
 
 .tooltip-header {
