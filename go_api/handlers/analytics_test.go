@@ -334,7 +334,7 @@ func TestComputeAgeBracketAndBatchYields(t *testing.T) {
 	if brackets[0].YieldPct != 50.0 || brackets[1].YieldPct != 80.0 || brackets[2].YieldPct != 90.0 {
 		t.Errorf("unexpected bracket yields: %+v", brackets)
 	}
-	if len(batchYields) != 3 || batchYields[0].MatchedEggType != "SMALL EGG" || batchYields[2].MatchedEggType != "LARGE EGG" {
+	if len(batchYields) != 3 || batchYields[0].MatchedEggType != "PULLET / SMALL" || batchYields[2].MatchedEggType != "LARGE EGG" {
 		t.Errorf("unexpected batch yields: %+v", batchYields)
 	}
 }

@@ -784,7 +784,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
 
             {data.age_bracket_yields && data.age_bracket_yields.some((b) => b.hen_count > 0) && (
               <div className="prod-box wide" data-testid="age-bracket-yields">
-                <span className="prod-label">Laying % by Hen Age &amp; Egg Weight Match</span>
+                <span className="prod-label">Laying % by Hen Age</span>
                 <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
                   {data.age_bracket_yields
                     .filter((b) => b.hen_count > 0)
@@ -799,7 +799,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
                           fontSize: '0.8rem',
                         }}
                       >
-                        <strong>{b.label}</strong>: {b.yield_pct.toFixed(1)}% ({b.hen_count.toLocaleString('en-IN')} hens · {b.matched_egg_type})
+                        <strong>{b.label}</strong>: {b.yield_pct.toFixed(1)}% ({b.hen_count.toLocaleString('en-IN')} hens{b.matched_egg_type ? ` · ${b.matched_egg_type}` : ''})
                       </div>
                     ))}
                 </div>
@@ -807,7 +807,7 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.4rem', fontSize: '0.78rem', color: '#475569' }}>
                     {data.batch_yields.map((by) => (
                       <span key={by.batch_id} style={{ background: '#eef2ff', color: '#3730a3', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
-                        {by.batch_name} ({by.age_weeks}w): {by.estimated_yield_pct.toFixed(1)}% ({by.matched_egg_type})
+                        {by.batch_name} ({by.age_weeks}w): {by.estimated_yield_pct.toFixed(1)}%{by.matched_egg_type ? ` (${by.matched_egg_type})` : ''}
                       </span>
                     ))}
                   </div>

@@ -2818,7 +2818,7 @@ func ComputeAgeBracketAndBatchYields(
 			smallEggs += v
 		case strings.Contains(u, "MEDIUM"):
 			mediumEggs += v
-		case strings.Contains(u, "LARGE") || strings.Contains(u, "BIG"):
+		case strings.Contains(u, "LARGE") || strings.Contains(u, "BIG") || strings.Contains(u, "CORRECT") || strings.Contains(u, "EXPORT"):
 			largeEggs += v
 		}
 	}
@@ -2847,10 +2847,14 @@ func ComputeAgeBracketAndBatchYields(
 			yield = sanitizeFloat((eggs / (hens * float64(daysInMonth))) * 100.0)
 		}
 		yieldByBracket[d.key] = yield
+		matchedLabel := d.eggType
+		if useProportionalFallback || eggs == 0 {
+			matchedLabel = ""
+		}
 		bracketYields = append(bracketYields, AgeBracketYield{
 			Bracket:        d.key,
 			Label:          d.label,
-			MatchedEggType: d.eggType,
+			MatchedEggType: matchedLabel,
 			HenCount:       hens,
 			SharePct:       share,
 			YieldPct:       yield,
@@ -2863,11 +2867,15 @@ func ComputeAgeBracketAndBatchYields(
 		if br == "" || b.HenCount <= 0 {
 			continue
 		}
-		matchedType := "LARGE EGG"
-		if br == "18_22w" {
-			matchedType = "SMALL EGG"
-		} else if br == "22_28w" {
-			matchedType = "MEDIUM EGG"
+		matchedType := ""
+		if !useProportionalFallback {
+			if br == "18_22w" && smallEggs > 0 {
+				matchedType = "PULLET / SMALL"
+			} else if br == "22_28w" && mediumEggs > 0 {
+				matchedType = "MEDIUM EGG"
+			} else if br == "28w_plus" && largeEggs > 0 {
+				matchedType = "LARGE EGG"
+			}
 		}
 		batchYields = append(batchYields, BatchYieldEstimate{
 			BatchID:        b.BatchID,
