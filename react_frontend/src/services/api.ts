@@ -285,6 +285,23 @@ export interface EnhancedMonthlySummary {
   eggs_per_kg_layer_feed?: number;
   layer_feed_grams_per_hen_per_day?: number;
   flock_alerts?: FlockAlert[];
+  age_bracket_yields?: Array<{
+    bracket: string;
+    label: string;
+    matched_egg_type: string;
+    hen_count: number;
+    share_pct: number;
+    yield_pct: number;
+  }>;
+  batch_yields?: Array<{
+    batch_id: number;
+    batch_name: string;
+    age_weeks: number;
+    hen_count: number;
+    bracket: string;
+    matched_egg_type: string;
+    estimated_yield_pct: number;
+  }>;
 }
 
 export interface YearlySummary {
@@ -790,6 +807,11 @@ export const adminAPI = {
       `/admin/uploads/${id}`
     );
     return response.data.data;
+  },
+  openUploadFile: async (id: number) => {
+    const response = await api.get(`/admin/uploads/${id}/file`, { responseType: 'blob' });
+    const blobUrl = URL.createObjectURL(response.data);
+    window.open(blobUrl, '_blank', 'noopener,noreferrer');
   },
   commitUpload: async (id: number, importMode: 'append_file' | 'replace_month' = 'append_file') => {
     const response = await api.post<{ success: boolean; data: any }>(

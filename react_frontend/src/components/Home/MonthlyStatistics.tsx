@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { analyticsAPI, tenantsAPI, EnhancedMonthlySummary, FlockAlert } from '../../services/api';
+import { analyticsAPI, EnhancedMonthlySummary, FlockAlert } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import BreakdownModal from './BreakdownModal';
@@ -25,7 +25,6 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
   const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
-  const [updatingLayingAge, setUpdatingLayingAge] = useState(false);
 
   // Profit Calculation Toggles (default = 'production': Flock Operating + Rearing Feed, excludes overheads & TDS)
   const [includeHenSales, setIncludeHenSales] = useState(true);
@@ -56,22 +55,6 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
 
     fetchData();
   }, [year, month, isAuthenticated]);
-
-  const handleLayingAgeChange = async (weeks: number) => {
-    if (!currentTenant?.tenant_id || updatingLayingAge) return;
-    setUpdatingLayingAge(true);
-    try {
-      await tenantsAPI.updateTenant(currentTenant.tenant_id, {
-        age_category_prelayer_max_weeks: weeks,
-      });
-      const summary = await analyticsAPI.getEnhancedMonthlySummary(year, month);
-      setData(summary);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update laying age threshold');
-    } finally {
-      setUpdatingLayingAge(false);
-    }
-  };
 
   const formatNumber = (num: number | undefined | null) => {
     if (num === undefined || num === null) return '0';
@@ -797,25 +780,40 @@ const MonthlyStatistics: React.FC<MonthlyStatisticsProps> = ({ year, month, canV
               <span className="prod-label">{t('stats.layingPercentage')}</span>
               <span className="prod-value highlight">{formatNumber(data.egg_percentage)}%</span>
               <span className="prod-sub">{t('stats.eggsPerBirdDay')} ({data.laying_age_weeks || 22}W+)</span>
-              {canEdit && (
-                <div className="laying-age-toggle" role="group" aria-label="Laying start age">
-                  {[18, 22].map((wks) => {
-                    const activeWeeks = data.laying_age_weeks || 22;
-                    return (
-                      <button
-                        key={wks}
-                        type="button"
-                        className={`laying-age-btn ${activeWeeks === wks ? 'active' : ''}`}
-                        disabled={updatingLayingAge}
-                        onClick={() => handleLayingAgeChange(wks)}
-                      >
-                        {wks}W
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
+
+            {data.age_bracket_yields && data.age_bracket_yields.some((b) => b.hen_count > 0) && (
+              <div className="prod-box wide" data-testid="age-bracket-yields">
+                <span className="prod-label">Laying % by Hen Age</span>
+                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                  {data.age_bracket_yields
+                    .filter((b) => b.hen_count > 0)
+                    .map((b) => (
+                      <div
+                        key={b.bracket}
+                        style={{
+                          padding: '0.4rem 0.65rem',
+                          borderRadius: '8px',
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          fontSize: '0.8rem',
+                        }}
+                      >
+                        <strong>{b.label}</strong>: {b.yield_pct.toFixed(1)}% ({b.hen_count.toLocaleString('en-IN')} hens{b.matched_egg_type ? ` · ${b.matched_egg_type}` : ''})
+                      </div>
+                    ))}
+                </div>
+                {data.batch_yields && data.batch_yields.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.4rem', fontSize: '0.78rem', color: '#475569' }}>
+                    {data.batch_yields.map((by) => (
+                      <span key={by.batch_id} style={{ background: '#eef2ff', color: '#3730a3', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                        {by.batch_name} ({by.age_weeks}w): {by.estimated_yield_pct.toFixed(1)}%{by.matched_egg_type ? ` (${by.matched_egg_type})` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {data.chick_stage_expense && data.chick_stage_expense.enabled && (
               <div className="prod-box wide">
