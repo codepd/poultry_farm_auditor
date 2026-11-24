@@ -59,3 +59,13 @@ output "route53_zone_id" {
   value       = var.api_domain_name != "" && length(data.aws_route53_zone.api) > 0 ? data.aws_route53_zone.api[0].zone_id : ""
   description = "Route53 zone ID for API domain"
 }
+
+output "cloudwatch_log_group_name" {
+  value       = module.cloudwatch_logs.log_group_name
+  description = "CloudWatch Logs group containing EKS pod stdout JSON logs"
+}
+
+output "cloudwatch_log_retention_days" {
+  value       = module.cloudwatch_logs.log_retention_days
+  description = "Retention period in days for EKS application logs"
+}

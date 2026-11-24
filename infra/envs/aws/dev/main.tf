@@ -66,6 +66,14 @@ module "s3_documents" {
   tags                     = var.tags
 }
 
+module "cloudwatch_logs" {
+  source             = "../../../modules/aws/cloudwatch_logs"
+  cluster_name       = module.eks.cluster_name
+  eks_node_role_name = module.eks.node_role_name
+  log_retention_days = var.log_retention_days
+  tags               = var.tags
+}
+
 module "bastion" {
   source           = "../../../modules/aws/bastion"
   name             = var.name
