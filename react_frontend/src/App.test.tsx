@@ -380,14 +380,9 @@ describe('QA Suite 2: MonthlyStatistics Calculations, Presets & EN/TA Snapshot P
       ).toBeInTheDocument();
     });
 
-    // Toggle laying start age between 18W and 22W
-    fireEvent.click(screen.getByRole('button', { name: '18W' }));
-    await waitFor(() => {
-      expect(tenantsAPI.updateTenant).toHaveBeenCalledWith(
-        '8d7939f7-b716-4eb0-98d4-544c18c8dfb8',
-        { age_category_prelayer_max_weeks: 18 }
-      );
-    });
+    // 18W/22W toggle is backend-configured, not exposed as UI buttons
+    expect(screen.queryByRole('button', { name: '18W' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '22W' })).not.toBeInTheDocument();
   });
 });
 

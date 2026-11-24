@@ -788,6 +788,12 @@ func ListDocumentUploadsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	perms, permErr := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if permErr != nil || (!middleware.HasPermission(perms.Permissions, "read:ledger") && !perms.CanEditTransactions) {
+		respondWithError(w, http.StatusForbidden, "You do not have permission to view uploaded ledgers")
+		return
+	}
+
 	fileTypeFilter := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("file_type")))
 	yearFilter := strings.TrimSpace(r.URL.Query().Get("year"))
 
@@ -861,6 +867,93 @@ func ListDocumentUploadsHandler(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"data":    records,
 	})
+}
+
+// StreamDocumentUploadFileHandler streams the uploaded PDF or image inline from S3 (or local staged fallback)
+// for users with read:ledger or manage:ledger permission.
+func StreamDocumentUploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+	perms, permErr := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if permErr != nil || (!middleware.HasPermission(perms.Permissions, "read:ledger") && !perms.CanEditTransactions) {
+		respondWithError(w, http.StatusForbidden, "You do not have permission to view uploaded ledgers")
+		return
+	}
+
+	uploadID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid upload ID")
+		return
+	}
+
+	var s3Bucket, s3Key, fileName, contentType, sha256Hash string
+	err = database.DB.QueryRow(`
+		SELECT COALESCE(s3_bucket, ''), COALESCE(s3_key, ''), COALESCE(file_name, 'document'),
+		       COALESCE(content_type, ''), COALESCE(sha256_hash, '')
+		FROM document_uploads
+		WHERE id = $1 AND tenant_id = $2
+	`, uploadID, tenantID).Scan(&s3Bucket, &s3Key, &fileName, &contentType, &sha256Hash)
+	if err == sql.ErrNoRows {
+		respondWithError(w, http.StatusNotFound, "Upload record not found")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to query upload record")
+		return
+	}
+
+	cfg := config.Load()
+	if s3Bucket == "" {
+		s3Bucket = cfg.S3DocumentsBucket
+	}
+
+	var fileBytes []byte
+	var getErr error
+	if s3Bucket != "" && s3Key != "" {
+		fileBytes, getErr = utils.S3GetObject(s3Bucket, cfg.AWSRegion, cfg.AWSProfile, s3Key)
+	}
+	if getErr != nil || len(fileBytes) == 0 {
+		prefix := ""
+		if len(sha256Hash) >= 10 {
+			prefix = sha256Hash[:10] + "_"
+		}
+		stagedPath := filepath.Join(cfg.UploadPath, "staged", tenantID.String(), prefix+filepath.Base(fileName))
+		if localBytes, readErr := os.ReadFile(stagedPath); readErr == nil {
+			fileBytes = localBytes
+			getErr = nil
+		}
+	}
+	if getErr != nil || len(fileBytes) == 0 {
+		respondWithError(w, http.StatusBadGateway, "Unable to retrieve document from S3")
+		return
+	}
+
+	if contentType == "" {
+		ext := strings.ToLower(filepath.Ext(fileName))
+		switch ext {
+		case ".pdf":
+			contentType = "application/pdf"
+		case ".png":
+			contentType = "image/png"
+		case ".webp":
+			contentType = "image/webp"
+		default:
+			contentType = "image/jpeg"
+		}
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filepath.Base(fileName)))
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(fileBytes)
 }
 
 func populateNullableUploadFields(
