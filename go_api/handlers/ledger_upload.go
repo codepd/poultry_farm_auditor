@@ -691,7 +691,8 @@ func CommitDocumentUploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reqBody struct {
-		ImportMode string `json:"import_mode"`
+		ImportMode           string `json:"import_mode"`
+		SupersedeDailyLogIDs []int  `json:"supersede_daily_log_ids"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&reqBody)
 	importMode := strings.TrimSpace(reqBody.ImportMode)
@@ -705,6 +706,10 @@ func CommitDocumentUploadHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Ledger parse/commit error (upload_id=%d): %v", uploadID, parseErr)
 		respondWithError(w, http.StatusUnprocessableEntity, parseErr.Error())
 		return
+	}
+
+	if len(reqBody.SupersedeDailyLogIDs) > 0 {
+		_ = ApplyReconciliationResolutions(tenantID, reqBody.SupersedeDailyLogIDs)
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{

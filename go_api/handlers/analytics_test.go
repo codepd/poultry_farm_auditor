@@ -301,6 +301,35 @@ func TestDailyLogApprovalHelpers(t *testing.T) {
 	}
 }
 
+func TestReconcileLedgerVsDailyLogs(t *testing.T) {
+	ledger := []ReconcileItem{
+		{Date: "2026-11-10", Category: "EGG", ItemName: "LARGE EGG", Quantity: 500, Amount: 2750},
+		{Date: "2026-11-18", Category: "EGG", ItemName: "LARGE EGG", Quantity: 1000, Amount: 5500},
+		{Date: "2026-11-20", Category: "FEED", ItemName: "LAYER MASH", Quantity: 750, Amount: 22500},
+		{Date: "2026-11-25", Category: "OTHER", ItemName: "Discount", Amount: 500},
+	}
+	daily := []ReconcileItem{
+		{ID: 1, Date: "2026-11-10", Category: "EGG", ItemName: "LARGE EGG", Quantity: 500, Amount: 2750, Source: "DAILY_LOG"},
+		{ID: 2, Date: "2026-11-17", Category: "EGG", ItemName: "LARGE EGG", Quantity: 1000, Amount: 5500, Source: "DAILY_LOG"},
+		{ID: 3, Date: "2026-11-20", Category: "FEED", ItemName: "LAYER MASH", Quantity: 600, Amount: 18000, Source: "DAILY_LOG"},
+		{ID: 4, Date: "2026-11-22", Category: "MEDICINE", ItemName: "D3 FORTE", Amount: 1200, Source: "DAILY_LOG"},
+	}
+
+	report := ReconcileLedgerVsDailyLogs(ledger, daily)
+	if report.Summary.ExactMatch != 1 {
+		t.Errorf("expected 1 exact match, got %d", report.Summary.ExactMatch)
+	}
+	if report.Summary.DateShift != 1 {
+		t.Errorf("expected 1 date shift (Nov 17 vs Nov 18), got %d", report.Summary.DateShift)
+	}
+	if report.Summary.Mismatch != 1 {
+		t.Errorf("expected 1 mismatch, got %d", report.Summary.Mismatch)
+	}
+	if report.Summary.LedgerOnly != 1 || report.Summary.DailyLogOnly != 1 {
+		t.Errorf("expected 1 ledger_only and 1 daily_log_only, got %+v", report.Summary)
+	}
+}
+
 func TestResolveFrontendURL(t *testing.T) {
 	t.Setenv("FRONTEND_URL", "")
 	req, _ := http.NewRequest("POST", "https://api-dev.mykolipannai.com/api/users/invite", nil)

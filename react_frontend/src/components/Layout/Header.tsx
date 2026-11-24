@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { usersAPI } from '../../services/api';
+import { usersAPI, dailyLogsAPI, DailyLogSubmission } from '../../services/api';
 import './Header.css';
 
 const Header: React.FC = () => {
@@ -26,6 +26,52 @@ const Header: React.FC = () => {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [isStandalonePWA, setIsStandalonePWA] = useState(false);
+
+  // Pending Approvals Notification Bell (Owner / Co-Owner / Admin / Manager)
+  const canApproveDailyLogs = Boolean(
+    currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role)
+  );
+  const [pendingApprovals, setPendingApprovals] = useState<DailyLogSubmission[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  const loadPendingApprovals = useCallback(() => {
+    if (!canApproveDailyLogs || !dailyLogsAPI?.list) {
+      setPendingApprovals([]);
+      return;
+    }
+    dailyLogsAPI
+      .list('PENDING_APPROVAL')
+      .then((list) => setPendingApprovals(list))
+      .catch(() => {});
+  }, [canApproveDailyLogs]);
+
+  useEffect(() => {
+    loadPendingApprovals();
+    window.addEventListener('transactionsUpdated', loadPendingApprovals);
+    const interval = setInterval(loadPendingApprovals, 60000);
+    return () => {
+      window.removeEventListener('transactionsUpdated', loadPendingApprovals);
+      clearInterval(interval);
+    };
+  }, [loadPendingApprovals]);
+
+  const handleHeaderApprove = async (id: number) => {
+    try {
+      await dailyLogsAPI.approve(id);
+      window.dispatchEvent(new Event('transactionsUpdated'));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleHeaderReject = async (id: number) => {
+    try {
+      await dailyLogsAPI.reject(id);
+      loadPendingApprovals();
+    } catch {
+      // ignore
+    }
+  };
 
   const needsName = !user?.full_name && !user?.must_set_password;
   const mustSetPassword = Boolean(user?.must_set_password);
@@ -196,6 +242,122 @@ const Header: React.FC = () => {
               {t('pwa.installApp')}
             </button>
           )}
+          {canApproveDailyLogs && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                aria-label="Pending approval notifications"
+                onClick={() => setShowNotifications((prev) => !prev)}
+                style={{
+                  position: 'relative',
+                  background: '#f1f5f9',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '999px',
+                  padding: '0.35rem 0.65rem',
+                  cursor: 'pointer',
+                  fontSize: '0.95rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <span>🔔</span>
+                {pendingApprovals.length > 0 && (
+                  <span
+                    data-testid="notification-badge"
+                    style={{
+                      background: '#dc2626',
+                      color: '#fff',
+                      borderRadius: '999px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '0.05rem 0.4rem',
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {pendingApprovals.length}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 8px)',
+                    width: '320px',
+                    maxWidth: '90vw',
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                    padding: '0.75rem',
+                    zIndex: 1000,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <strong style={{ fontSize: '0.9rem' }}>Pending Approvals ({pendingApprovals.length})</strong>
+                    <button
+                      type="button"
+                      onClick={() => setShowNotifications(false)}
+                      style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {pendingApprovals.length === 0 ? (
+                    <p style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: '#64748b' }}>
+                      No pending employee submissions.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '280px', overflowY: 'auto' }}>
+                      {pendingApprovals.map((item) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '0.55rem',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '0.82rem',
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>
+                            {item.log_type.replace('_', ' ')} · {item.log_date}
+                          </div>
+                          <div style={{ color: '#334155', margin: '0.15rem 0' }}>
+                            {item.item_name || item.category}
+                            {item.quantity > 0 ? ` (${item.quantity} ${item.unit})` : ''}
+                            {item.amount > 0 ? ` — ₹${item.amount.toLocaleString('en-IN')}` : ''}
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: '0.76rem', marginBottom: '0.4rem' }}>
+                            By {item.submitted_by_name || 'Employee'}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleHeaderApprove(item.id)}
+                              style={{ padding: '0.25rem 0.6rem', borderRadius: '6px', border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '0.78rem' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleHeaderReject(item.id)}
+                              style={{ padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer', fontSize: '0.78rem' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="lang-switcher" role="group" data-tour="language" aria-label={t('header.languageLabel')}>
             <button
               type="button"

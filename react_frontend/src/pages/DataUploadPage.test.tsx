@@ -17,6 +17,7 @@ jest.mock('../services/api', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
   adminAPI: {
     listUploads: jest.fn(),
+    reconcileUpload: jest.fn(),
     commitUpload: jest.fn(),
     uploadLedger: jest.fn(),
     openUploadFile: jest.fn(),
@@ -157,6 +158,45 @@ describe('DataUploadPage Import Mode selection', () => {
     await waitFor(() => {
       expect(adminAPI.uploadLedger).toHaveBeenCalledWith(file, true);
       expect(screen.getByText('Feed Prices Saved & Validated!')).toBeInTheDocument();
+    });
+  });
+
+  test('renders Daily Log vs Ledger Reconciliation and passes supersede_daily_log_ids on commit', async () => {
+    (adminAPI.reconcileUpload as jest.Mock).mockResolvedValue({
+      summary: {
+        exact_match: 0,
+        date_shift: 1,
+        mismatch: 0,
+        ledger_only: 0,
+        daily_log_only: 0,
+      },
+      matches: [
+        {
+          status: 'DATE_SHIFT',
+          color: 'yellow',
+          date_diff_days: 1,
+          default_resolution: 'KEEP_LEDGER',
+          ledger_item: { date: '2026-10-18', category: 'EGG', item_name: 'LARGE EGG', quantity: 1000, amount: 5500, source: 'LEDGER' },
+          daily_log_item: { id: 901, date: '2026-10-17', category: 'EGG', item_name: 'LARGE EGG', quantity: 1000, amount: 5500, source: 'DAILY_LOG' },
+        },
+      ],
+    });
+
+    render(<DataUploadPage />);
+    await waitFor(() => {
+      expect(screen.getByText('26_10_OCT_revised.pdf')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/^(Review|Inspect|upload\.reviewBtn)$/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Daily Log vs Ledger Reconciliation')).toBeInTheDocument();
+    });
+    expect(screen.getByText('DATE SHIFT (+1d)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Approve & Save to Farm Records/i));
+    await waitFor(() => {
+      expect(adminAPI.commitUpload).toHaveBeenCalledWith(42, 'append_file', [901]);
     });
   });
 
