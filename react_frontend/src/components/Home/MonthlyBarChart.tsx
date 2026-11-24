@@ -277,9 +277,16 @@ const MonthlyBarChart: React.FC<MonthlyBarChartProps> = ({
               tickFormatter={formatYAxis}
               label={isMobile ? undefined : { value: '₹', angle: -90, position: 'insideLeft', style: { fill: '#666' } }}
             />
-            {shouldShowTooltip && <Tooltip content={<CustomTooltip />} />}
+            {shouldShowTooltip && (
+              <Tooltip
+                content={<CustomTooltip />}
+                wrapperStyle={{ zIndex: 1000, pointerEvents: 'none' }}
+                allowEscapeViewBox={{ x: true, y: true }}
+              />
+            )}
             <Legend
-              wrapperStyle={{ paddingTop: isMobile ? '6px' : '20px', fontSize: isMobile ? '11px' : '13px' }}
+              verticalAlign="top"
+              wrapperStyle={{ paddingBottom: isMobile ? '8px' : '14px', fontSize: isMobile ? '11px' : '13px' }}
               iconType="square"
             />
             {canViewSensitiveData && (
