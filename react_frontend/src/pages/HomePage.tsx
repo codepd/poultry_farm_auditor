@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { analyticsAPI, dailyLogsAPI, DailyLogSubmission } from '../services/api';
+import { analyticsAPI, dailyLogsAPI, usersAPI, DailyLogSubmission } from '../services/api';
 import DailyQuickLogModal from '../components/Home/DailyQuickLogModal';
 import OnboardingTour from '../onboarding/OnboardingTour';
 import MonthlyStatistics from '../components/Home/MonthlyStatistics';
@@ -18,17 +18,45 @@ const HomePage: React.FC = () => {
   const [showDateRange, setShowDateRange] = useState(false);
 
   const canEdit = Boolean(currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN', 'MANAGER'].includes(currentTenant.role));
+  const isOtherUser = currentTenant?.role === 'OTHER_USER';
   const canLogDaily = Boolean(currentTenant);
+  const [canViewSensitiveData, setCanViewSensitiveData] = useState<boolean>(
+    () => currentTenant?.role !== 'MANAGER' && currentTenant?.role !== 'OTHER_USER'
+  );
   const [pendingLogs, setPendingLogs] = useState<DailyLogSubmission[]>([]);
+  const [myLogs, setMyLogs] = useState<DailyLogSubmission[]>([]);
   const [showApprovals, setShowApprovals] = useState(false);
 
+  useEffect(() => {
+    if (!currentTenant) return;
+    if (currentTenant.role === 'OTHER_USER') {
+      setCanViewSensitiveData(false);
+      return;
+    }
+    if (usersAPI?.getMyPermissions) {
+      Promise.resolve(usersAPI.getMyPermissions())
+        .then((perms) => {
+          if (perms && typeof perms.can_view_sensitive_data === 'boolean') {
+            setCanViewSensitiveData(perms.can_view_sensitive_data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentTenant]);
+
   const loadPendingLogs = useCallback(() => {
+    if (isOtherUser) {
+      if (!dailyLogsAPI?.list) return;
+      Promise.resolve(dailyLogsAPI.list())
+        .then((list) => setMyLogs(Array.isArray(list) ? list : []))
+        .catch(() => {});
+      return;
+    }
     if (!canEdit || !dailyLogsAPI?.list) return;
-    dailyLogsAPI
-      .list('PENDING_APPROVAL')
-      .then((list) => setPendingLogs(list))
+    Promise.resolve(dailyLogsAPI.list('PENDING_APPROVAL'))
+      .then((list) => setPendingLogs(Array.isArray(list) ? list : []))
       .catch(() => {});
-  }, [canEdit]);
+  }, [canEdit, isOtherUser]);
 
   useEffect(() => {
     loadPendingLogs();
@@ -118,13 +146,15 @@ const HomePage: React.FC = () => {
           </button>
         )}
 
-        <button
-          type="button"
-          className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
-          onClick={() => setShowDateRange(!showDateRange)}
-        >
-          {showDateRange ? t('home.dateRangeClose') : t('home.dateRangeOpen')}
-        </button>
+        {!isOtherUser && (
+          <button
+            type="button"
+            className={`shortcut-pill ${showDateRange ? 'active' : ''}`}
+            onClick={() => setShowDateRange(!showDateRange)}
+          >
+            {showDateRange ? t('home.dateRangeClose') : t('home.dateRangeOpen')}
+          </button>
+        )}
       </div>
 
       {canEdit && showApprovals && pendingLogs.length > 0 && (
@@ -189,61 +219,133 @@ const HomePage: React.FC = () => {
 
       <OnboardingTour />
 
-      <div className="statistics-section">
-        {viewMode === 'monthly' && <MonthlyBarChart onMonthClick={handleMonthClick} />}
-        
-        <div className="view-controls">
-          <div className="view-toggle">
-            <button
-              className={viewMode === 'monthly' ? 'active' : ''}
-              onClick={() => setViewMode('monthly')}
-            >
-              {t('home.monthly')}
-            </button>
-            <button
-              className={viewMode === 'yearly' ? 'active' : ''}
-              onClick={() => setViewMode('yearly')}
-            >
-              {t('home.yearly')}
-            </button>
-          </div>
-
-          {viewMode === 'monthly' && (
-            <div className="date-selector" data-tour="month">
-              <select
-                value={selectedYear}
-                onChange={(e) => { userPickedMonthRef.current = true; setSelectedYear(parseInt(e.target.value)); }}
-                title="Select year"
-                aria-label="Select year"
-              >
-                {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedMonth}
-                onChange={(e) => { userPickedMonthRef.current = true; setSelectedMonth(parseInt(e.target.value)); }}
-                title="Select month"
-                aria-label="Select month"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-                  <option key={month} value={month}>
-                    {new Date(2000, month - 1).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', { month: 'long' })}
-                  </option>
-                ))}
-              </select>
+      {isOtherUser ? (
+        <div
+          className="statistics-section"
+          data-testid="employee-home-view"
+          style={{ background: '#fff', padding: '1.25rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
+        >
+          <h2 style={{ marginTop: 0, marginBottom: '0.35rem' }}>My Submitted Daily Logs</h2>
+          <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: 0, marginBottom: '1rem' }}>
+            Use <strong>Daily Quick Log</strong> above to record egg sales, feed purchases, or bird mortality. Managers/Owners will review and approve your entries.
+          </p>
+          {myLogs.length === 0 ? (
+            <p style={{ color: '#64748b' }}>No daily log submissions yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {myLogs.map((log) => (
+                <div
+                  key={log.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    padding: '0.65rem 0.9rem',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div>
+                    <strong>{log.log_type.replace('_', ' ')}</strong> · {log.log_date} ·{' '}
+                    <span>{log.item_name || log.category}</span>
+                    {log.quantity > 0 && <span> ({log.quantity} {log.unit})</span>}
+                    {log.amount > 0 && <span> — ₹{log.amount.toLocaleString('en-IN')}</span>}
+                  </div>
+                  <span
+                    style={{
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: '999px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      background:
+                        log.status === 'APPROVED' || log.status === 'RECONCILED'
+                          ? '#dcfce7'
+                          : log.status === 'REJECTED'
+                            ? '#fee2e2'
+                            : '#fef3c7',
+                      color:
+                        log.status === 'APPROVED' || log.status === 'RECONCILED'
+                          ? '#166534'
+                          : log.status === 'REJECTED'
+                            ? '#991b1b'
+                            : '#92400e',
+                    }}
+                  >
+                    {log.status.replace('_', ' ')}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
+      ) : (
+        <div className="statistics-section">
+          {viewMode === 'monthly' && (
+            <MonthlyBarChart
+              onMonthClick={handleMonthClick}
+              canViewSensitiveData={canViewSensitiveData}
+            />
+          )}
+          
+          <div className="view-controls">
+            <div className="view-toggle">
+              <button
+                className={viewMode === 'monthly' ? 'active' : ''}
+                onClick={() => setViewMode('monthly')}
+              >
+                {t('home.monthly')}
+              </button>
+              <button
+                className={viewMode === 'yearly' ? 'active' : ''}
+                onClick={() => setViewMode('yearly')}
+              >
+                {t('home.yearly')}
+              </button>
+            </div>
 
-        {viewMode === 'monthly' ? (
-          <MonthlyStatistics year={selectedYear} month={selectedMonth} />
-        ) : (
-          <YearlyStatistics />
-        )}
-      </div>
+            {viewMode === 'monthly' && (
+              <div className="date-selector" data-tour="month">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => { userPickedMonthRef.current = true; setSelectedYear(parseInt(e.target.value)); }}
+                  title="Select year"
+                  aria-label="Select year"
+                >
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => { userPickedMonthRef.current = true; setSelectedMonth(parseInt(e.target.value)); }}
+                  title="Select month"
+                  aria-label="Select month"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                    <option key={month} value={month}>
+                      {new Date(2000, month - 1).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', { month: 'long' })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {viewMode === 'monthly' ? (
+            <MonthlyStatistics
+              year={selectedYear}
+              month={selectedMonth}
+              canViewSensitiveData={canViewSensitiveData}
+            />
+          ) : (
+            <YearlyStatistics />
+          )}
+        </div>
+      )}
     </div>
   );
 };

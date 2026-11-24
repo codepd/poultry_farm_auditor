@@ -48,4 +48,5 @@ type RolePermission struct {
 	CanApproveTransactions bool      `json:"can_approve_transactions"`
 	CanManageUsers         bool      `json:"can_manage_users"`
 	CanViewCharts          bool      `json:"can_view_charts"`
+	Permissions            []string  `json:"permissions"`
 }

@@ -12,6 +12,25 @@ const ROLES = [
   { value: 'OTHER_USER', label: 'User' },
 ];
 
+const PERMISSION_CATALOG = [
+  { key: 'read:profit', label: 'Read Profit & Sales' },
+  { key: 'read:expense', label: 'Read Expenses' },
+  { key: 'manage:expense', label: 'Manage Expenses' },
+  { key: 'read:hen_batch', label: 'Read Hen Batches' },
+  { key: 'manage:hen_batch', label: 'Manage Hen Batches' },
+  { key: 'read:price_history', label: 'Read Price History' },
+  { key: 'manage:price_history', label: 'Manage Price History' },
+  { key: 'read:ledger', label: 'Read Ledger / Sheets' },
+  { key: 'manage:ledger', label: 'Manage Ledger / Sheets' },
+  { key: 'submit:daily_log', label: 'Add Daily Quick Logs' },
+  { key: 'approve:daily_log', label: 'Approve Daily Logs' },
+  { key: 'read:team', label: 'Read Team' },
+  { key: 'manage:team', label: 'Manage Team' },
+  { key: 'read:farm_settings', label: 'Read Farm Settings' },
+  { key: 'manage:farm_settings', label: 'Manage Farm Settings' },
+  { key: 'manage:profile', label: 'Manage Own Profile' },
+];
+
 const UserManagementPage: React.FC = () => {
   const { user, currentTenant } = useAuth();
   const { t } = useLanguage();
@@ -36,6 +55,11 @@ const UserManagementPage: React.FC = () => {
   const [inviteRole, setInviteRole] = useState('OTHER_USER');
   const [inviting, setInviting] = useState(false);
   const [countryCodes, setCountryCodes] = useState<CountryCodeInfo[]>([]);
+  const [expandedPermsUserId, setExpandedPermsUserId] = useState<number | null>(null);
+
+  const canManagePerms = Boolean(
+    currentTenant && ['OWNER', 'CO_OWNER', 'ADMIN'].includes(currentTenant.role)
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -386,6 +410,42 @@ const UserManagementPage: React.FC = () => {
                           </option>
                         ))}
                       </select>
+                      {canManagePerms && u.role === 'MANAGER' && (
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            color: '#334155',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`View Profit for ${u.full_name || u.email || u.phone || u.id}`}
+                            checked={Boolean(u.can_view_sensitive_data)}
+                            onChange={async (e) => {
+                              const nextVal = e.target.checked;
+                              setError('');
+                              setSuccessMsg('');
+                              try {
+                                await usersAPI.updateUserSensitiveAccess(u.id, nextVal);
+                                setUsers((prev) =>
+                                  prev.map((m) => (m.id === u.id ? { ...m, can_view_sensitive_data: nextVal } : m))
+                                );
+                                setSuccessMsg(
+                                  `${u.full_name || 'Manager'} ${nextVal ? 'can now view' : 'no longer views'} Sales & Profit charts.`
+                                );
+                              } catch (err: any) {
+                                setError(err.response?.data?.error || 'Failed to update manager profit access');
+                              }
+                            }}
+                          />
+                          <span>View Profit</span>
+                        </label>
+                      )}
                       {isCurrentUserOwner && u.role === 'CO_OWNER' && (
                         <button
                           type="button"
@@ -401,6 +461,23 @@ const UserManagementPage: React.FC = () => {
                           }}
                         >
                           Make Owner
+                        </button>
+                      )}
+                      {canManagePerms && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPermsUserId((prev) => (prev === u.id ? null : u.id))}
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '0.3rem 0.65rem',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            background: expandedPermsUserId === u.id ? '#e2e8f0' : '#f8fafc',
+                            color: '#334155',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Permissions
                         </button>
                       )}
                       {u.id !== user?.user_id && (
@@ -423,6 +500,62 @@ const UserManagementPage: React.FC = () => {
                     </>
                   )}
                 </div>
+                {canManagePerms && !u.is_owner && expandedPermsUserId === u.id && (
+                  <div
+                    data-testid={`permissions-panel-${u.id}`}
+                    style={{
+                      width: '100%',
+                      marginTop: '0.75rem',
+                      paddingTop: '0.75rem',
+                      borderTop: '1px dashed #cbd5e1',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                      gap: '0.45rem',
+                    }}
+                  >
+                    {PERMISSION_CATALOG.map((permDef) => {
+                      const currentPerms = u.permissions || [];
+                      const isChecked = currentPerms.includes(permDef.key);
+                      const impliedByManage =
+                        permDef.key.startsWith('read:') &&
+                        currentPerms.includes(`manage:${permDef.key.slice(5)}`);
+                      return (
+                        <label
+                          key={permDef.key}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', cursor: 'pointer' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked || impliedByManage}
+                            disabled={impliedByManage}
+                            onChange={async (e) => {
+                              const checked = e.target.checked;
+                              let nextPerms = checked
+                                ? Array.from(new Set([...currentPerms, permDef.key]))
+                                : currentPerms.filter((p) => p !== permDef.key);
+                              setError('');
+                              setSuccessMsg('');
+                              try {
+                                const res = await usersAPI.updateUserPermissions(u.id, nextPerms);
+                                setUsers((prev) =>
+                                  prev.map((m) =>
+                                    m.id === u.id
+                                      ? { ...m, permissions: res.permissions, can_view_sensitive_data: res.can_view_sensitive_data }
+                                      : m
+                                  )
+                                );
+                                setSuccessMsg(`Updated permissions for ${u.full_name || 'member'}.`);
+                              } catch (err: any) {
+                                setError(err.response?.data?.error || 'Failed to update permissions');
+                              }
+                            }}
+                          />
+                          <span>{permDef.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -577,6 +577,8 @@ export interface TenantUser {
   is_active: boolean;
   role: string;
   is_owner: boolean;
+  can_view_sensitive_data?: boolean;
+  permissions?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -639,6 +641,49 @@ export const usersAPI = {
   revokeInvitation: async (invitationId: number) => {
     const response = await api.delete<{ success: boolean; message: string }>(`/users/invitations/${invitationId}`);
     return response.data;
+  },
+  getMyPermissions: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        role: string;
+        can_view_sensitive_data: boolean;
+        can_edit_transactions: boolean;
+        can_approve_transactions: boolean;
+        can_manage_users: boolean;
+        can_view_charts: boolean;
+        permissions?: string[];
+      };
+    }>('/users/my-permissions');
+    return response.data.data;
+  },
+  getManagerPermissions: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: { can_view_sensitive_data: boolean; can_view_charts: boolean };
+    }>('/users/manager-permissions');
+    return response.data.data;
+  },
+  updateManagerPermissions: async (canViewSensitiveData: boolean) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { can_view_sensitive_data: boolean; can_view_charts: boolean };
+    }>('/users/manager-permissions', { can_view_sensitive_data: canViewSensitiveData });
+    return response.data.data;
+  },
+  updateUserSensitiveAccess: async (userId: number, canViewSensitiveData: boolean) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { user_id: number; can_view_sensitive_data: boolean };
+    }>(`/users/${userId}/sensitive-access`, { can_view_sensitive_data: canViewSensitiveData });
+    return response.data.data;
+  },
+  updateUserPermissions: async (userId: number, permissions: string[]) => {
+    const response = await api.put<{
+      success: boolean;
+      data: { user_id: number; permissions: string[]; can_view_sensitive_data: boolean };
+    }>(`/users/${userId}/permissions`, { permissions });
+    return response.data.data;
   },
   updateProfile: async (data: { full_name?: string; preferred_language?: string; onboarding_version?: number }) => {
     const response = await api.put<{ success: boolean; message: string; data: { full_name: string; preferred_language: string } }>('/users/profile', data);
@@ -889,6 +934,16 @@ export const dailyLogsAPI = {
     await api.post(`/daily-logs/${id}/reject`, { review_notes });
   },
 };
+
+export function hasPermission(perms: string[] | undefined, required: string): boolean {
+  if (!perms || perms.length === 0) return false;
+  const req = required.trim().toLowerCase();
+  const impliedManage = req.startsWith('read:') ? `manage:${req.slice(5)}` : '';
+  return perms.some((p) => {
+    const norm = p.trim().toLowerCase();
+    return norm === req || (impliedManage !== '' && norm === impliedManage);
+  });
+}
 
 export default api;
 

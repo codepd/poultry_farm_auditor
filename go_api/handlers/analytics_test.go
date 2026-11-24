@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"math"
+	"net/http"
 	"poultry-farm-api/config"
 	"strings"
 	"testing"
@@ -326,5 +327,20 @@ func TestReconcileLedgerVsDailyLogs(t *testing.T) {
 	}
 	if report.Summary.LedgerOnly != 1 || report.Summary.DailyLogOnly != 1 {
 		t.Errorf("expected 1 ledger_only and 1 daily_log_only, got %+v", report.Summary)
+	}
+}
+
+func TestResolveFrontendURL(t *testing.T) {
+	t.Setenv("FRONTEND_URL", "")
+	req, _ := http.NewRequest("POST", "https://api-dev.mykolipannai.com/api/users/invite", nil)
+	req.Header.Set("Origin", "https://mykolipannai.com")
+	if got := resolveFrontendURL(req); got != "https://mykolipannai.com" {
+		t.Errorf("expected Origin https://mykolipannai.com, got %q", got)
+	}
+
+	reqNoOrigin, _ := http.NewRequest("POST", "https://api-dev.mykolipannai.com/api/users/invite", nil)
+	reqNoOrigin.Header.Set("Referer", "https://app-dev.mykolipannai.com/team")
+	if got := resolveFrontendURL(reqNoOrigin); got != "https://app-dev.mykolipannai.com" {
+		t.Errorf("expected Referer origin https://app-dev.mykolipannai.com, got %q", got)
 	}
 }

@@ -136,11 +136,13 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 		return nil, err
 	}
 
-	// Get user's role for this tenant
+	// Get user's role and optional per-user overrides for this tenant
+	var userSensitiveOverride sql.NullBool
+	var customPermsRaw sql.NullString
 	err = database.DB.QueryRow(`
-		SELECT role FROM tenant_users 
+		SELECT role, can_view_sensitive_data, custom_permissions::text FROM tenant_users 
 		WHERE user_id = $1 AND tenant_id = $2
-	`, userID, tenantUUID).Scan(&role)
+	`, userID, tenantUUID).Scan(&role, &userSensitiveOverride, &customPermsRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -158,13 +160,31 @@ func GetUserPermissions(userID int, tenantID string) (*models.RolePermission, er
 	)
 
 	if err == sql.ErrNoRows {
-		return defaultRolePermissions(tenantUUID, role), nil
-	}
-
-	if err != nil {
+		def := defaultRolePermissions(tenantUUID, role)
+		perm = *def
+	} else if err != nil {
 		return nil, err
 	}
 
+	if userSensitiveOverride.Valid {
+		perm.CanViewSensitiveData = userSensitiveOverride.Bool
+	}
+
+	// Resolve granular capability list (custom_permissions overrides role defaults if present)
+	if customPermsRaw.Valid && strings.TrimSpace(customPermsRaw.String) != "" && strings.TrimSpace(customPermsRaw.String) != "null" {
+		var customList []string
+		if jsonErr := json.Unmarshal([]byte(customPermsRaw.String), &customList); jsonErr == nil {
+			perm.Permissions = customList
+			perm.CanViewSensitiveData = HasPermission(customList, "read:profit")
+			perm.CanEditTransactions = HasPermission(customList, "manage:expense") || HasPermission(customList, "manage:hen_batch") || HasPermission(customList, "submit:daily_log")
+			perm.CanApproveTransactions = HasPermission(customList, "approve:daily_log")
+			perm.CanManageUsers = HasPermission(customList, "manage:team")
+			perm.CanViewCharts = HasPermission(customList, "read:profit") || HasPermission(customList, "read:expense") || HasPermission(customList, "read:price_history")
+			return &perm, nil
+		}
+	}
+
+	perm.Permissions = DefaultPermissionsForRole(role, perm.CanViewSensitiveData)
 	return &perm, nil
 }
 
@@ -215,6 +235,93 @@ func defaultRolePermissions(tenantUUID uuid.UUID, role string) *models.RolePermi
 			TenantID: tenantUUID,
 			Role:     role,
 		}
+	}
+}
+
+// HasPermission checks whether a permission slice grants `required`.
+// Any `manage:<resource>` permission automatically grants `read:<resource>`.
+func HasPermission(perms []string, required string) bool {
+	req := strings.ToLower(strings.TrimSpace(required))
+	if req == "" {
+		return false
+	}
+	impliedManage := ""
+	if strings.HasPrefix(req, "read:") {
+		impliedManage = "manage:" + strings.TrimPrefix(req, "read:")
+	}
+	for _, p := range perms {
+		norm := strings.ToLower(strings.TrimSpace(p))
+		if norm == req || (impliedManage != "" && norm == impliedManage) {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultPermissionsForRole returns the canonical read:/manage: capabilities for each farm role.
+func DefaultPermissionsForRole(role string, includeProfit bool) []string {
+	switch strings.ToUpper(strings.TrimSpace(role)) {
+	case "OWNER":
+		return []string{
+			"read:profit",
+			"manage:expense",
+			"manage:hen_batch",
+			"manage:price_history",
+			"manage:ledger",
+			"submit:daily_log",
+			"approve:daily_log",
+			"manage:team",
+			"transfer:ownership",
+			"manage:farm_settings",
+			"manage:profile",
+		}
+	case "CO_OWNER", "ADMIN":
+		return []string{
+			"read:profit",
+			"manage:expense",
+			"manage:hen_batch",
+			"manage:price_history",
+			"manage:ledger",
+			"submit:daily_log",
+			"approve:daily_log",
+			"manage:team",
+			"manage:farm_settings",
+			"manage:profile",
+		}
+	case "MANAGER":
+		perms := []string{
+			"manage:expense",
+			"manage:hen_batch",
+			"manage:price_history",
+			"manage:ledger",
+			"submit:daily_log",
+			"approve:daily_log",
+			"read:farm_settings",
+			"manage:profile",
+		}
+		if includeProfit {
+			perms = append([]string{"read:profit"}, perms...)
+		}
+		return perms
+	case "AUDITOR":
+		return []string{
+			"read:profit",
+			"read:expense",
+			"read:hen_batch",
+			"read:price_history",
+			"read:ledger",
+			"read:team",
+			"read:farm_settings",
+			"manage:profile",
+		}
+	case "OTHER_USER":
+		return []string{
+			"read:hen_batch",
+			"submit:daily_log",
+			"manage:profile",
+		}
+	default:
+		return []string{"manage:profile"}
 	}
 }
 

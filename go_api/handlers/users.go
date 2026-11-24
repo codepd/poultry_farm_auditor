@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -44,9 +45,13 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(`
 		SELECT u.id, COALESCE(u.email, ''), COALESCE(u.phone, ''), COALESCE(u.full_name, ''),
-		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner
+		       u.is_active, u.created_at, u.updated_at, tu.role, tu.is_owner,
+		       COALESCE(tu.can_view_sensitive_data, rp.can_view_sensitive_data,
+		                CASE WHEN tu.role IN ('OWNER', 'CO_OWNER', 'ADMIN', 'AUDITOR') THEN TRUE ELSE FALSE END),
+		       COALESCE(tu.custom_permissions::text, '')
 		FROM users u
 		JOIN tenant_users tu ON tu.user_id = u.id
+		LEFT JOIN role_permissions rp ON rp.tenant_id = tu.tenant_id AND rp.role = tu.role
 		WHERE tu.tenant_id = $1
 		ORDER BY u.full_name, u.email
 	`, tenantID)
@@ -58,26 +63,36 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type UserResponse struct {
-		ID        int       `json:"id"`
-		Email     string    `json:"email"`
-		Phone     string    `json:"phone"`
-		FullName  string    `json:"full_name"`
-		IsActive  bool      `json:"is_active"`
-		Role      string    `json:"role"`
-		IsOwner   bool      `json:"is_owner"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
+		ID                   int       `json:"id"`
+		Email                string    `json:"email"`
+		Phone                string    `json:"phone"`
+		FullName             string    `json:"full_name"`
+		IsActive             bool      `json:"is_active"`
+		Role                 string    `json:"role"`
+		IsOwner              bool      `json:"is_owner"`
+		CanViewSensitiveData bool      `json:"can_view_sensitive_data"`
+		Permissions          []string  `json:"permissions"`
+		CreatedAt            time.Time `json:"created_at"`
+		UpdatedAt            time.Time `json:"updated_at"`
 	}
 
 	var users []UserResponse
 	for rows.Next() {
 		var u UserResponse
+		var customPermsRaw string
 		err := rows.Scan(
 			&u.ID, &u.Email, &u.Phone, &u.FullName, &u.IsActive,
-			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner,
+			&u.CreatedAt, &u.UpdatedAt, &u.Role, &u.IsOwner, &u.CanViewSensitiveData,
+			&customPermsRaw,
 		)
 		if err != nil {
 			continue
+		}
+		if strings.TrimSpace(customPermsRaw) != "" && strings.TrimSpace(customPermsRaw) != "null" {
+			_ = json.Unmarshal([]byte(customPermsRaw), &u.Permissions)
+		}
+		if len(u.Permissions) == 0 {
+			u.Permissions = middleware.DefaultPermissionsForRole(u.Role, u.CanViewSensitiveData)
 		}
 		users = append(users, u)
 	}
@@ -218,10 +233,7 @@ func InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:4300"
-	}
+	frontendURL := resolveFrontendURL(r)
 
 	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
 	invitationLink := fmt.Sprintf("%s/accept-invite?token=%s", frontendURL, token)
@@ -318,10 +330,7 @@ func GenerateUserMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:4300"
-	}
+	frontendURL := resolveFrontendURL(r)
 	magicLoginLink := fmt.Sprintf("%s/login?magic_token=%s", frontendURL, token)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -1073,5 +1082,266 @@ func RevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Invitation cancelled",
+	})
+}
+
+// GetMyPermissions returns the effective RolePermission for the authenticated user in the current tenant.
+func GetMyPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load permissions")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    perms,
+	})
+}
+
+// GetManagerPermissions returns whether MANAGER role can view sensitive financial data (Sales/Profit charts) in this tenant.
+func GetManagerPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var canViewSensitive, canViewCharts bool
+	err = database.DB.QueryRow(`
+		SELECT can_view_sensitive_data, can_view_charts
+		FROM role_permissions
+		WHERE tenant_id = $1 AND role = 'MANAGER'
+	`, tenantID).Scan(&canViewSensitive, &canViewCharts)
+	if err == sql.ErrNoRows {
+		canViewSensitive = false
+		canViewCharts = true
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to load manager permissions")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"can_view_sensitive_data": canViewSensitive,
+			"can_view_charts":         canViewCharts,
+		},
+	})
+}
+
+// UpdateManagerPermissions allows Owner/Co-Owner/Admin to toggle whether Managers can view all financial charts & profit data.
+func UpdateManagerPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Only Owner, Co-Owner, or Admin can update manager permissions")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		CanViewSensitiveData bool `json:"can_view_sensitive_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	_, err = database.DB.Exec(`
+		INSERT INTO role_permissions (
+			tenant_id, role, can_view_sensitive_data, can_edit_transactions,
+			can_approve_transactions, can_manage_users, can_view_charts
+		) VALUES ($1, 'MANAGER', $2, TRUE, TRUE, FALSE, TRUE)
+		ON CONFLICT (tenant_id, role) DO UPDATE SET
+			can_view_sensitive_data = EXCLUDED.can_view_sensitive_data,
+			updated_at = CURRENT_TIMESTAMP
+	`, tenantID, req.CanViewSensitiveData)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update manager permissions")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"can_view_sensitive_data": req.CanViewSensitiveData,
+			"can_view_charts":         true,
+		},
+	})
+}
+
+func resolveFrontendURL(r *http.Request) string {
+	if envURL := strings.TrimRight(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/"); envURL != "" {
+		return envURL
+	}
+	if r != nil {
+		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
+			return origin
+		}
+		if ref := strings.TrimSpace(r.Header.Get("Referer")); ref != "" {
+			if parsed, err := url.Parse(ref); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+				return parsed.Scheme + "://" + parsed.Host
+			}
+		}
+		if strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1") {
+			return "http://localhost:4300"
+		}
+	}
+	return "https://mykolipannai.com"
+}
+
+// UpdateUserSensitiveAccess sets per-user can_view_sensitive_data (e.g., granting a specific Manager profit access).
+func UpdateUserSensitiveAccess(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || !perms.CanManageUsers {
+		respondWithError(w, http.StatusForbidden, "Only Owner, Co-Owner, or Admin can update user profit access")
+		return
+	}
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		CanViewSensitiveData bool `json:"can_view_sensitive_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	res, err := database.DB.Exec(`
+		UPDATE tenant_users
+		SET can_view_sensitive_data = $1
+		WHERE tenant_id = $2 AND user_id = $3
+	`, req.CanViewSensitiveData, tenantID, targetUserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update user profit access")
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		respondWithError(w, http.StatusNotFound, "Member not found in this farm")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":                 targetUserID,
+			"can_view_sensitive_data": req.CanViewSensitiveData,
+		},
+	})
+}
+
+// UpdateUserPermissions saves custom granular permissions (read:/manage:) for a specific farm member.
+func UpdateUserPermissions(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	perms, err := middleware.GetUserPermissions(user.UserID, user.TenantID)
+	if err != nil || (!perms.CanManageUsers && !middleware.HasPermission(perms.Permissions, "manage:team")) {
+		respondWithError(w, http.StatusForbidden, "Insufficient permissions to update team permissions")
+		return
+	}
+	targetUserID, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	tenantID, err := uuid.Parse(user.TenantID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		Permissions []string `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	cleaned := make([]string, 0, len(req.Permissions))
+	seen := make(map[string]bool)
+	for _, p := range req.Permissions {
+		norm := strings.ToLower(strings.TrimSpace(p))
+		if norm != "" && !seen[norm] {
+			seen[norm] = true
+			cleaned = append(cleaned, norm)
+		}
+	}
+
+	permsJSON, err := json.Marshal(cleaned)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to encode permissions")
+		return
+	}
+
+	canViewProfit := middleware.HasPermission(cleaned, "read:profit")
+	res, err := database.DB.Exec(`
+		UPDATE tenant_users
+		SET custom_permissions = $1::jsonb,
+		    can_view_sensitive_data = $2
+		WHERE tenant_id = $3 AND user_id = $4 AND is_owner = FALSE
+	`, string(permsJSON), canViewProfit, tenantID, targetUserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update user permissions")
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		respondWithError(w, http.StatusNotFound, "Non-owner member not found in this farm")
+		return
+	}
+
+	InvalidateAnalyticsCache(tenantID.String())
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"user_id":                 targetUserID,
+			"permissions":             cleaned,
+			"can_view_sensitive_data": canViewProfit,
+		},
 	})
 }
