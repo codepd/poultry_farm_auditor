@@ -3,8 +3,24 @@ import { getOrCreateDeviceId } from '../utils/deviceId';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
+function randomHex(byteLen: number): string {
+  const arr = new Uint8Array(byteLen);
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(arr);
+  } else {
+    for (let i = 0; i < byteLen; i += 1) {
+      arr[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function attachDeviceId(config: { headers: import('axios').AxiosRequestHeaders }) {
   config.headers.set('X-Device-Id', getOrCreateDeviceId());
+  const traceId = randomHex(16);
+  const spanId = randomHex(8);
+  config.headers.set('traceparent', `00-${traceId}-${spanId}-01`);
+  config.headers.set('X-Correlation-ID', traceId);
 }
 
 const api = axios.create({
