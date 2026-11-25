@@ -111,6 +111,12 @@ variable "alb_hosted_zone_id" {
   description = "ALB CanonicalHostedZoneId (per-ALB, get with: aws elbv2 describe-load-balancers --query 'LoadBalancers[?contains(DNSName,\"goapiing\")].CanonicalHostedZoneId' --output text)"
 }
 
+variable "log_retention_days" {
+  type        = number
+  default     = 30
+  description = "CloudWatch Logs retention in days for EKS application logs (e.g. 14 or 30)"
+}
+
 variable "tags" {
   type = map(string)
   default = {
