@@ -367,3 +367,39 @@ func TestComputeAgeBracketAndBatchYields(t *testing.T) {
 		t.Errorf("unexpected batch yields: %+v", batchYields)
 	}
 }
+
+func TestComputeAgeBracketAndBatchYields_OrphanSmallEggsTo22_28w(t *testing.T) {
+	batches := []BatchAgeSnapshot{
+		{BatchID: 1, BatchName: "Apr 2026", AgeWeeks: 24, HenCount: 11000},
+		{BatchID: 2, BatchName: "Jan 2026", AgeWeeks: 40, HenCount: 30918},
+	}
+	eggQty := map[string]float64{
+		"SMALL EGG": 43400,  // 43400 / (11000 * 30) = 13.15%
+		"LARGE EGG": 925700, // 925700 / (30918 * 30) = 99.80%
+	}
+	brackets, batchYields := ComputeAgeBracketAndBatchYields(batches, eggQty, 30)
+	if brackets[1].Bracket != "22_28w" || brackets[1].YieldPct <= 0 || brackets[1].MatchedEggType != "PULLET / SMALL" {
+		t.Fatalf("expected 22_28w to absorb SMALL EGG when 18_22w has 0 hens, got %+v", brackets[1])
+	}
+	if len(batchYields) != 2 || batchYields[0].MatchedEggType != "PULLET / SMALL" || batchYields[0].EstimatedYield <= 0 {
+		t.Fatalf("expected batch 24w to inherit PULLET / SMALL yield, got %+v", batchYields)
+	}
+}
+
+func TestComputeAgeBracketAndBatchYields_ProportionalWhenActiveBracketUnmatched(t *testing.T) {
+	batches := []BatchAgeSnapshot{
+		{BatchID: 1, BatchName: "Early", AgeWeeks: 20, HenCount: 1000},
+		{BatchID: 2, BatchName: "Ramp", AgeWeeks: 24, HenCount: 1000},
+		{BatchID: 3, BatchName: "Peak", AgeWeeks: 40, HenCount: 2000},
+	}
+	eggQty := map[string]float64{
+		"SMALL EGG": 12000,
+		"LARGE EGG": 60000, // total 72000 across 4000 hens * 30d = 60%
+	}
+	brackets, _ := ComputeAgeBracketAndBatchYields(batches, eggQty, 30)
+	for _, b := range brackets {
+		if b.YieldPct != 60.0 || b.MatchedEggType != "" {
+			t.Fatalf("expected proportional 60%% fallback when active 22_28w has no medium eggs, got %+v", b)
+		}
+	}
+}

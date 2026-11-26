@@ -2773,14 +2773,13 @@ func ComputeAgeBracketAndBatchYields(
 		daysInMonth = 30
 	}
 	type bracketDef struct {
-		key     string
-		label   string
-		eggType string
+		key   string
+		label string
 	}
 	defs := []bracketDef{
-		{key: "18_22w", label: "18–22 Weeks (Early Lay)", eggType: "SMALL EGG"},
-		{key: "22_28w", label: "22–28 Weeks (Ramp-Up)", eggType: "MEDIUM EGG"},
-		{key: "28w_plus", label: "28+ Weeks (Peak Lay)", eggType: "LARGE EGG"},
+		{key: "18_22w", label: "18–22 Weeks (Early Lay)"},
+		{key: "22_28w", label: "22–28 Weeks (Ramp-Up)"},
+		{key: "28w_plus", label: "28+ Weeks (Peak Lay)"},
 	}
 
 	classifyBracket := func(ageWeeks int) string {
@@ -2822,15 +2821,39 @@ func ComputeAgeBracketAndBatchYields(
 			largeEggs += v
 		}
 	}
-	eggsByBracket := map[string]float64{
-		"18_22w":   smallEggs,
-		"22_28w":   mediumEggs,
-		"28w_plus": largeEggs,
+	eggsByBracket := map[string]float64{"18_22w": 0, "22_28w": 0, "28w_plus": 0}
+	matchedTypesByBracket := map[string][]string{}
+	assignEggs := func(qty float64, label string, order []string) {
+		if qty <= 0 {
+			return
+		}
+		for _, br := range order {
+			if hensByBracket[br] > 0 {
+				eggsByBracket[br] += qty
+				matchedTypesByBracket[br] = append(matchedTypesByBracket[br], label)
+				return
+			}
+		}
 	}
+	// Route each egg size class to its primary age bracket, or the nearest active
+	// bracket when the primary bracket has 0 hens (e.g. 24w flock laying SMALL/PULLET eggs).
+	assignEggs(smallEggs, "PULLET / SMALL", []string{"18_22w", "22_28w", "28w_plus"})
+	assignEggs(mediumEggs, "MEDIUM EGG", []string{"22_28w", "28w_plus", "18_22w"})
+	assignEggs(largeEggs, "LARGE EGG", []string{"28w_plus", "22_28w", "18_22w"})
 
 	useProportionalFallback := smallEggs == 0 && mediumEggs == 0 && totalEggs > 0
+	if !useProportionalFallback && totalLayingHens > 0 && totalEggs > 0 {
+		for _, d := range defs {
+			if hensByBracket[d.key] > 0 && eggsByBracket[d.key] == 0 {
+				useProportionalFallback = true
+				break
+			}
+		}
+	}
+
 	bracketYields := make([]AgeBracketYield, 0, 3)
 	yieldByBracket := map[string]float64{}
+	matchedLabelByBracket := map[string]string{}
 
 	for _, d := range defs {
 		hens := hensByBracket[d.key]
@@ -2847,10 +2870,11 @@ func ComputeAgeBracketAndBatchYields(
 			yield = sanitizeFloat((eggs / (hens * float64(daysInMonth))) * 100.0)
 		}
 		yieldByBracket[d.key] = yield
-		matchedLabel := d.eggType
-		if useProportionalFallback || eggs == 0 {
-			matchedLabel = ""
+		matchedLabel := ""
+		if !useProportionalFallback && eggs > 0 {
+			matchedLabel = strings.Join(matchedTypesByBracket[d.key], " + ")
 		}
+		matchedLabelByBracket[d.key] = matchedLabel
 		bracketYields = append(bracketYields, AgeBracketYield{
 			Bracket:        d.key,
 			Label:          d.label,
@@ -2867,23 +2891,13 @@ func ComputeAgeBracketAndBatchYields(
 		if br == "" || b.HenCount <= 0 {
 			continue
 		}
-		matchedType := ""
-		if !useProportionalFallback {
-			if br == "18_22w" && smallEggs > 0 {
-				matchedType = "PULLET / SMALL"
-			} else if br == "22_28w" && mediumEggs > 0 {
-				matchedType = "MEDIUM EGG"
-			} else if br == "28w_plus" && largeEggs > 0 {
-				matchedType = "LARGE EGG"
-			}
-		}
 		batchYields = append(batchYields, BatchYieldEstimate{
 			BatchID:        b.BatchID,
 			BatchName:      b.BatchName,
 			AgeWeeks:       b.AgeWeeks,
 			HenCount:       b.HenCount,
 			Bracket:        br,
-			MatchedEggType: matchedType,
+			MatchedEggType: matchedLabelByBracket[br],
 			EstimatedYield: yieldByBracket[br],
 		})
 	}
